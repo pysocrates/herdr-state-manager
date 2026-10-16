@@ -17,6 +17,11 @@ def build_server(client=None):
         return api.request('/tasks/' + quote(task_id, safe=''))
 
     @server.tool()
+    def hsm_task_tree(task_id: str) -> dict:
+        """Inspect a task and all descendants, with ownership and progress counts."""
+        return api.request('/tasks/' + quote(task_id, safe='') + '/tree')
+
+    @server.tool()
     def hsm_task_transition(task_id: str, request: Transition, idempotency_key: str) -> dict:
         return api.request('/tasks/' + quote(task_id, safe='') + '/transition', method='POST',
                            data=request.model_dump(), idempotency_key=idempotency_key)

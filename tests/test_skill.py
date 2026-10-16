@@ -35,6 +35,12 @@ def test_skill_helper_registration_readback_retry_and_scope(http_api, tmp_path):
     denied = invoke(http_api, 'GET', '/state', '--query', 'project=beta')
     assert denied.returncode == 1
     assert json.loads(denied.stderr)['error']['status'] == 403
+    child_result = invoke(http_api, 'POST', '/tasks', '--data-file', '-', '--idempotency-key', 'skill-child',
+                          body={**body, 'task_key': 'SKILL-1-CHILD', 'parent_id': task['id']})
+    assert child_result.returncode == 0, child_result.stderr
+    tree = invoke(http_api, 'GET', '/tasks/' + task['id'] + '/tree')
+    assert tree.returncode == 0, tree.stderr
+    assert len(json.loads(tree.stdout)['data']['nodes']) == 2
     assert 'a' * 32 not in first.stdout + first.stderr + denied.stdout + denied.stderr
 
 

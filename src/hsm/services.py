@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func
 from .models import Project, Task, AgentSession, Pane, Event, Idempotency, Approval, Incident, AdapterHealth, now
 from .state_machine import TRANSITIONS, ACTIVE
+from .hierarchy import task_forest, subtree
 
 
 class Problem(Exception):
@@ -84,8 +85,9 @@ class Service:
         item = Task(**data)
         self.db.add(item)
         self.db.flush()
-        self.event(item.project_id, 'task.created', item.id, new=item.state)
-        return serialize(item)
+        self.event(item.project_id, 'task.created', item.id, new=item.state,
+                   details={'parent_id': item.parent_id, 'owner_session_id': item.owner_session_id})
+        return self.task_view(item)
 
     def patch_task(self, ident, data, transition=False):
         item = self.get(Task, ident, 'tasks:write')
@@ -94,6 +96,9 @@ class Service:
         if item.state not in ACTIVE:
             raise Problem(409, 'terminal_task', 'Terminal tasks are immutable')
         previous = item.state
+        assignment_changes = {key: {'previous_id': getattr(item, key), 'new_id': data[key]}
+                              for key in ('parent_id', 'owner_session_id')
+                              if key in data and data[key] != getattr(item, key)}
         if transition:
             if data['state'] not in TRANSITIONS[item.state]:
                 raise Problem(409, 'invalid_transition', 'Transition is not allowed')
@@ -111,9 +116,9 @@ class Service:
         item.updated_at = now()
         self.event(item.project_id, 'task.transitioned' if transition else 'task.updated',
                    item.id, previous if transition else None, item.state if transition else None,
-                   {'version': item.version})
+                   {'version': item.version, **assignment_changes})
         self.db.flush()
-        return serialize(item)
+        return self.task_view(item)
 
     def register(self, model, data):
         self.project(data['project_id'], 'runtime:write')
@@ -172,6 +177,12 @@ class Service:
             self.project(filters['project'])
             projects = [filters['project']]
         query = select(model).where(model.project_id.in_(projects))
+        if model is Task and 'parent_id' in filters:
+            if filters['parent_id'] == 'none':
+                query = query.where(Task.parent_id.is_(None))
+            else:
+                self.get(Task, filters['parent_id'])
+                query = query.where(Task.parent_id == filters['parent_id'])
         for name in ('state', 'task_id', 'status'):
             if filters.get(name):
                 query = query.where(getattr(model, name) == filters[name])
@@ -186,8 +197,38 @@ class Service:
             query = query.where(model.created_at <= filters['created_before'])
         ordering = Event.cursor.desc() if model is Event else model.id
         items = list(self.db.scalars(query.order_by(ordering).offset(offset).limit(limit + 1)))
-        return {'data': [self.resource_view(i) for i in items[:limit]],
+        task_views = {n['id']: n for n in self.project_forest(projects)} if model is Task else {}
+        return {'data': [task_views[i.id] if model is Task else self.resource_view(i) for i in items[:limit]],
                 'pagination': {'offset': offset, 'limit': limit, 'has_more': len(items) > limit}}
+
+    def project_forest(self, project_ids):
+        """Internal read, called only after project authorization."""
+        tasks = [serialize(t) for t in self.db.scalars(select(Task).where(Task.project_id.in_(project_ids)))]
+        sessions = {s.id: s for s in self.db.scalars(select(AgentSession).where(AgentSession.project_id.in_(project_ids)))}
+        panes = {}
+        for pane in self.db.scalars(select(Pane).where(Pane.project_id.in_(project_ids), Pane.terminated_at.is_(None)).order_by(Pane.id)):
+            panes.setdefault(pane.task_id, []).append(pane.id)
+        for task in tasks:
+            owner = sessions.get(task['owner_session_id'])
+            task['owner_profile'] = owner.profile if owner else None
+            task['pane_ids'] = panes.get(task['id'], [])
+        return task_forest(tasks)
+
+    def task_view(self, item):
+        return next(n for n in self.project_forest([item.project_id]) if n['id'] == item.id)
+
+    def task_tree(self, project=None, ident=None):
+        if ident:
+            task = self.get(Task, ident)
+            if project is not None and project != task.project_id:
+                self.project(project)
+                raise Problem(409, 'project_mismatch', 'Task does not belong to requested project')
+            nodes = subtree(self.project_forest([task.project_id]), ident)
+        else:
+            ids = [self.project(project).id] if project else [p.id for p in self.projects()]
+            nodes = self.project_forest(ids)
+        return {'nodes': nodes, 'root_ids': [n['id'] for n in nodes if n['depth'] == 0],
+                'selection': 'subtree' if ident else 'all', 'truncation': {'nodes': False}}
 
     def resource_view(self, item):
         if isinstance(item, Approval):
@@ -206,7 +247,16 @@ class Service:
         def rows(model, *conditions):
             return [self.resource_view(x) for x in self.db.scalars(select(model).where(
                 model.project_id.in_(ids), *conditions).order_by(model.project_id, model.id))]
-        tasks = rows(Task, Task.state.in_(ACTIVE))
+        forest = self.project_forest(ids)
+        by_id = {n['id']: n for n in forest}
+        tasks = [by_id[t['id']] for t in rows(Task, Task.state.in_(ACTIVE))]
+        relevant = {t['id'] for t in tasks}
+        for task in tasks:
+            parent = task['parent_id']
+            while parent and parent not in relevant:
+                relevant.add(parent)
+                parent = by_id[parent]['parent_id']
+        hierarchy = [node for node in forest if node['id'] in relevant]
         task_ids = [t['id'] for t in tasks]
         owner_ids = [t['owner_session_id'] for t in tasks if t['owner_session_id']]
         events = list(self.db.scalars(select(Event).where(Event.project_id.in_(ids))
@@ -215,6 +265,7 @@ class Service:
         result = {'schema_version': 1, 'project': project, 'generated_at': now(),
                 'revision': self.db.scalar(select(func.max(Event.cursor)).where(Event.project_id.in_(ids))) or 0,
                 'projects': [serialize(p) for p in projects], 'active_tasks': tasks,
+                'task_hierarchy': {'selection': 'active_with_ancestors', 'nodes': hierarchy, 'root_ids': [n['id'] for n in hierarchy if n['depth'] == 0], 'truncation': {'nodes': False}},
                 'agent_sessions': rows(AgentSession, AgentSession.ended_at.is_(None)),
                 'active_panes': rows(Pane, Pane.terminated_at.is_(None)),
                 'related_ended_sessions': rows(AgentSession, AgentSession.ended_at.is_not(None), AgentSession.id.in_(owner_ids)),
@@ -223,7 +274,7 @@ class Service:
                 'outstanding_approvals': [self.resource_view(a) for a in self.db.scalars(select(Approval).where(Approval.project_id.in_(ids), Approval.status.in_(['pending', 'approved']), Approval.consumed_at.is_(None)).order_by(Approval.project_id, Approval.id))], 'blocked_tasks': [t for t in tasks if t['state'] == 'blocked'],
                 'unresolved_incidents': rows(Incident, Incident.status == 'open'),
                 'adapter_health': rows(AdapterHealth), 'recent_events': [serialize(e) for e in events[:recent]],
-                'warnings': self.snapshot_warnings(ids),
+                'warnings': self.snapshot_warnings(ids) + [f"{n['project_id']}/{n['task_key']}: terminal parent has {n['descendant_summary']['active']} active descendants" for n in hierarchy if n['state'] not in ACTIVE and n['descendant_summary']['active']],
                 'truncation': {'recent_events': len(events) > recent}}
         return Snapshot.model_validate(result).model_dump()
 

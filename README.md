@@ -139,3 +139,37 @@ from the skill. Do not source an operator client environment into an agent. Load
 skill through Hermes skill discovery or explicitly preload it with
 `hermes --skills herdr-state-manager`. Existing sessions may need to refresh their
 skill list. Copying this folder does not provision credentials or register resources.
+
+## Larger tasks and agent-owned subtasks
+
+Keep project_id for the software project. Use parent_id to connect each agent's task
+to the larger task; children can themselves have children. Every task has its own
+owner_session_id, pane assignments, version and lifecycle. The orchestrator creates
+and delegates work; HSM records that structure.
+
+```bash
+hsm tasks --project example --tree
+hsm task FEATURE-1 --project example --tree
+hsm tasks --project example --parent FEATURE-1
+hsm subtask FEATURE-1 --project example --key FEATURE-1-API \
+  --title "Implement API changes" --objective "Deliver the API part of FEATURE-1" \
+  --idempotency-key feature-1-api-create
+```
+
+The parent must already exist. Add `--owner-session SESSION_UUID` when the actual
+worker session is registered. Assign its confirmed pane using the REST API or bundled
+skill helper. Use the same key/payload when retrying this specific creation; choose a
+new key for a different subtask. CLI creation independently reads back the child.
+
+Task lists show the parent key and owner profile. `--tree` includes completed/failed/
+cancelled descendants; default status/watch views show active work with its ancestors
+and progress counts that also include closed descendants. Watch's progress column is
+completed/total descendants, not a percentage of engineering effort. Select a row to
+inspect direct-child/descendant state counts, owner UUID and pane IDs.
+
+Parent and child states remain independent. Completing children never auto-completes
+the parent; parent completion/cancellation never cascades to children. Review and
+complete the larger task explicitly. Terminal parents with active descendants produce
+recovery warnings, including intentionally linked follow-up work. Reparenting is an
+expected-version task PATCH and is audited; cross-project links and cycles are rejected.
+No database migration is needed for this refinement: parent_id already exists.

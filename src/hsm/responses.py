@@ -24,6 +24,7 @@ class Snapshot(BaseModel):
     revision: int
     projects: list[dict]
     active_tasks: list[dict]
+    task_hierarchy: dict
     agent_sessions: list[dict]
     active_panes: list[dict]
     related_ended_sessions: list[dict]

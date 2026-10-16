@@ -13,7 +13,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 # Agent operations only. Server remains responsible for project/action authorization.
 UUID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 ALLOWED = {
-    'GET': rf'/(?:projects|tasks(?:/{UUID}(?:/events)?)?|agent-sessions(?:/{UUID})?|panes(?:/{UUID})?|approvals(?:/{UUID})?|events|incidents|state(?:/projects/[a-zA-Z0-9_-]{{1,80}})?|health(?:/(?:live|ready))?)',
+    'GET': rf'/(?:projects|tasks(?:/tree|/{UUID}(?:/(?:events|tree))?)?|agent-sessions(?:/{UUID})?|panes(?:/{UUID})?|approvals(?:/{UUID})?|events|incidents|state(?:/projects/[a-zA-Z0-9_-]{{1,80}})?|health(?:/(?:live|ready))?)',
     'POST': rf'/(?:tasks(?:/{UUID}/transition)?|agent-sessions(?:/{UUID}/heartbeat)?|panes(?:/{UUID}/heartbeat)?|approvals(?:/{UUID}/consume)?)',
     'PATCH': rf'/(?:tasks|agent-sessions|panes)/{UUID}',
 }

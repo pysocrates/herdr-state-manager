@@ -92,3 +92,19 @@ supports authenticated agent operations without installing the HSM Python packag
 operator resolution and project administration are deliberately outside its interface.
 See README's companion skill section for copying into the intended Hermes profile.
 Agent credentials are provisioned separately and never bundled with the skill.
+
+## Decompose a larger task across workers
+
+Register the larger task once in its actual project. When the orchestrator delegates,
+create one child task per work item with parent_id=larger_task_UUID and an explicit
+owner_session_id for the confirmed worker session. Nested decomposition is supported.
+Register/link each real pane to the relevant child and session. Do not assign every
+worker to the parent merely because all work belongs to one feature, and do not create
+a new project identifier for each feature. HSM never spawns the requested workers.
+
+Use hsm_task_tree(task_id) over MCP or GET /tasks/UUID/tree to inspect descendants,
+owners, panes and state counts; hsm_task_create already accepts request.parent_id.
+Re-read versions before lifecycle changes. Children report their own progress; the
+orchestrator reviews the aggregate and transitions the parent explicitly. Failed or
+cancelled children are not counted as completed. Parent completion/cancellation does
+not stop workers or transition their tasks. Review remaining active descendants.

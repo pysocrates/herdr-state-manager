@@ -117,3 +117,12 @@ integration uses explicitly configured read-only metadata DB access verified aga
 the installed 0.19.0 schema; Herdr snapshot schema is protocol 22, bundled with 0.9.1.
 No live pane output or session conversations were inspected. Production adapter access
 and Ubuntu service activation remain operator integration steps.
+
+## Task hierarchy refinement
+Project identifiers remain software-project boundaries. Parent_id groups delegated
+work; owner_session_id and pane registrations identify each work item's workers.
+The hierarchy API exposes complete task forests/subtrees, direct-child filters and
+computed ownership/progress fields. Recovery adds active_with_ancestors task_hierarchy,
+including terminal ancestors and closed-descendant counts. Derived progress does not
+change parent versions or lifecycle. No automatic parent/child transition, cancellation
+cascade or agent spawning is introduced. Existing parent_id needs no migration.

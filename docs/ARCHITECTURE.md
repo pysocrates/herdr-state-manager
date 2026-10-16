@@ -47,3 +47,18 @@ Agent and operator tokens are distinct, and agent grants enumerate project/actio
 access. No transcripts or secrets belong in metadata. Application logging excludes
 request payloads and credentials. Remote access requires TLS or SSH tunneling and a
 rate-limiting authenticated reverse proxy. No in-process distributed coordination.
+
+## Task decomposition
+
+Tasks already form a project-local forest through parent_id. No schema migration or
+reuse of project identifiers is needed. hierarchy.py builds a deterministic iterative
+preorder and computes direct-child and all-descendant state summaries. Services
+augment nodes with confirmed owner profiles and registered pane UUIDs; API, CLI, TUI,
+MCP and recovery use the same data. No client duplicates progress rules.
+
+Complete tree reads include terminal descendants. Recovery is smaller: active tasks
+plus their ancestor chains, with complete rollup counts across closed branches.
+Terminal parents are retained and warned about when they have active descendants.
+Counts are observational; parent lifecycle/version and worker ownership remain explicit.
+Creating a child does not mutate the parent record. Reparenting changes the child's
+version, is checked against cycles/project scope, and audits old/new parent IDs.

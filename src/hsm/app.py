@@ -109,7 +109,7 @@ def create_app(config=None):
     def query_options(model):
         allowed = {'project', 'limit', 'offset'}
         if model is Task:
-            allowed |= {'state', 'profile', 'created_after', 'created_before'}
+            allowed |= {'state', 'profile', 'parent_id', 'created_after', 'created_before'}
         if model is Event:
             allowed |= {'task_id'}
         if model in {Approval, Incident}:
@@ -132,6 +132,12 @@ def create_app(config=None):
                     filters[key] = value.astimezone(timezone.utc).isoformat(timespec='microseconds').replace('+00:00', 'Z')
         except (ValueError, OverflowError):
             raise Problem(422, 'query_validation', 'Invalid pagination or UTC date filter')
+        if 'parent_id' in filters and filters['parent_id'] != 'none':
+            from uuid import UUID
+            try:
+                filters['parent_id'] = str(UUID(filters['parent_id']))
+            except ValueError:
+                raise Problem(422, 'query_validation', 'parent_id must be a UUID or none')
         if filters.get('state') and filters['state'] not in TRANSITIONS:
             raise Problem(422, 'query_validation', 'Unknown task state')
         return filters, limit, offset
@@ -172,9 +178,16 @@ def create_app(config=None):
     def task(ident):
         ident = str(ident)
         if request.method == 'GET':
-            return run(lambda s: {'data': serialize(s.get(Task, ident))})
+            return run(lambda s: {'data': s.task_view(s.get(Task, ident))})
         data = body(TaskPatch)
         return run(lambda s: {'data': s.patch_task(ident, data)}, True)
+
+    @app.get('/api/v1/tasks/tree')
+    @app.get('/api/v1/tasks/<uuid:ident>/tree')
+    def task_tree(ident=None):
+        if any(k != 'project' for k in request.args) or len(request.args.getlist('project')) > 1:
+            raise Problem(422, 'query_validation', 'Task trees accept only an optional project filter')
+        return run(lambda s: {'data': s.task_tree(request.args.get('project'), str(ident) if ident else None)})
 
     @app.post('/api/v1/tasks/<uuid:ident>/transition')
     def transition(ident):

@@ -21,10 +21,13 @@ def test_mcp_uses_authenticated_api_and_no_operator_tools(env):
     async def scenario():
         server = build_server(FlaskTransport(env[1], 'a'))
         names = {t.name for t in await server.list_tools()}
-        assert 'hsm_task_create' in names
+        assert 'hsm_task_create' in names and 'hsm_task_tree' in names
         assert not any('resolve' in n or 'consume' in n or 'approve' in n for n in names)
         await server.call_tool('hsm_task_create', {'request': {'project_id': 'alpha', 'task_key': 'MCP-1', 'title': 'MCP', 'objective': 'recover'}, 'idempotency_key': 'mcp-create'})
-        assert env[2]('GET', '/tasks?project=alpha').json['data'][0]['task_key'] == 'MCP-1'
+        task = env[2]('GET', '/tasks?project=alpha').json['data'][0]
+        assert task['task_key'] == 'MCP-1'
+        tree = await server.call_tool('hsm_task_tree', {'task_id': task['id']})
+        assert tree
         with pytest.raises(Exception):
             await server.call_tool('hsm_task_create', {'request': {'project_id': 'beta', 'task_key': 'MCP-2', 'title': 'MCP', 'objective': 'scope'}, 'idempotency_key': 'mcp-forbidden'})
     asyncio.run(scenario())

@@ -117,8 +117,45 @@ or run the action again based only on an HTTP retry.
 ## MCP alternative
 
 If configured, use hsm_state_snapshot, hsm_task_create/get/transition,
-hsm_session_register/heartbeat, hsm_pane_register/heartbeat and
+hsm_task_tree, hsm_session_register/heartbeat, hsm_pane_register/heartbeat and
 hsm_approval_request/get. Pass request payloads as the tool's request object and
 idempotency_key where required. The MVP MCP tools do not expose task PATCH, pane
 PATCH, operator resolution or consumption; use the authenticated REST helper for
 agent-side operations not exposed there. Do not assume a missing tool exists.
+
+
+## Larger tasks and agent-owned subtasks
+
+Retrieve the larger task's actual UUID first. Create children through the same task
+endpoint, with parent_id and (when confirmed) owner_session_id. For example, replace
+all identifiers with real records and use a distinct logical-operation idempotency key:
+
+```json
+{"project_id":"example","task_key":"FEATURE-1-API","title":"API portion","objective":"Deliver the API part of FEATURE-1","parent_id":"PARENT_TASK_UUID","owner_session_id":"WORKER_SESSION_UUID"}
+```
+
+POST with the helper, independently GET the child, and link the worker's confirmed
+pane to that child. This does not itself spawn or instruct the worker. For already
+registered active work, PATCH its parent_id with expected_version. The parent must
+be in the same project and cannot be a descendant of the child. Reparenting is audited;
+the parent task's own version does not change just because a child is added/moved.
+
+```bash
+python3 scripts/hsm_request.py GET /tasks/tree --query project=example
+# Replace UUID below with the actual parent task's internal UUID.
+python3 scripts/hsm_request.py GET /tasks/00000000-0000-0000-0000-000000000001/tree
+python3 scripts/hsm_request.py GET /tasks --query parent_id=00000000-0000-0000-0000-000000000001
+```
+
+Tree data is flat preorder (nodes, root_ids, selection, truncation). Nodes include
+depth, parent_key, root_id, child_ids, owner_profile, pane_ids, child_summary and
+descendant_summary. Summaries distinguish completed, active, blocked, awaiting_approval,
+failed and cancelled work, plus by_state. They exclude the node itself and are computed
+from all task states, not only visible active rows. Failed/cancelled is not completed.
+A full subtree is uncapped. A snapshot includes active tasks plus ancestors and
+complete rollups; terminal branches omitted from the active view remain inspectable.
+
+After a context reset, inspect the parent/child structure and assignments before
+creating replacement subtasks or workers. Complete/review the parent explicitly after
+assessing its children; no child completion, pane status, or approval auto-completes it.
+A terminal parent with active descendants produces a warning, not silent cancellation.

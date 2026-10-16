@@ -54,8 +54,15 @@ class Watch(App):
             self.query_one('#summary', Static).update(Text(
                 f"Project: {data['project'] or 'all authorized'} | event cursor: {data['revision']} | snapshot: {data['generated_at']}\n"
                 + ('; '.join(data['warnings']) or 'Displaying persisted observations; inspect timestamps for freshness.')))
+            task_nodes = data.get('task_hierarchy', {}).get('nodes', data['active_tasks'])
+            task_rows = []
+            for node in task_nodes:
+                counts = node.get('descendant_summary', {})
+                task_rows.append({**node, 'task_tree': '  ' * node.get('depth', 0) + node['task_key'],
+                                  'progress': f"{counts.get('completed', 0)}/{counts.get('total', 0)}" if counts.get('total') else '',
+                                  'owner': node.get('owner_profile') or node.get('owner_session_id') or 'unassigned'})
             groups = {
-                'tasks': (data['active_tasks'], ['project_id', 'task_key', 'title', 'state', 'owner_session_id', 'version']),
+                'tasks': (task_rows, ['project_id', 'task_tree', 'title', 'parent_key', 'state', 'owner', 'progress', 'version']),
                 'agents': (data['agent_sessions'], ['project_id', 'profile', 'runtime_status', 'last_observed_at']),
                 'panes': (data['active_panes'], ['project_id', 'external_pane_id', 'runtime_status', 'task_id', 'last_observed_at']),
                 'approvals': (data.get('outstanding_approvals', data['pending_approvals']), ['project_id', 'operation', 'target', 'status', 'expires_at']),

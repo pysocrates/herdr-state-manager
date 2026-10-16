@@ -49,6 +49,21 @@ For an old or terminal task absent from active_tasks, use the paginated `/tasks`
 Session/pane creation has no idempotency guarantee. After an ambiguous response,
 inspect registrations before retrying; duplicate session records are otherwise possible.
 
+## Larger tasks and delegated subtasks
+
+Keep project_id for the software project; link each delegated work item with parent_id
+pointing to the larger task's internal UUID. Give each child its actual owner_session_id
+and pane linkage. A child may itself have children. HSM records delegation; it never
+spawns workers. Task keys remain unique within the project.
+
+Inspect `/tasks/UUID/tree` or hsm_task_tree for full progress, including terminal
+children; use `/tasks?parent_id=UUID` for paginated direct children. Snapshot task_hierarchy
+retains active work and ancestors, with counts across closed branches. Failed/cancelled
+work is separate from completed counts. Parent/child transitions never cascade; update
+each task explicitly based on actual progress. Read the
+[decomposition examples](references/workflows.md#larger-tasks-and-agent-owned-subtasks)
+when delegating or attaching existing work.
+
 ## Lifecycle and retries
 
 Use dedicated `/tasks/UUID/transition` requests; task PATCH cannot set state.

@@ -117,3 +117,54 @@ These preserve ownership/assignment context even after an explicit runtime endin
 Approval responses also include task_key and task_state, so recovery exposes requests
 that remain unresolved after their task becomes terminal. Such grants cannot be
 consumed. Resolving or expiring them remains separate from task cancellation.
+
+## Task hierarchy and multi-agent decomposition
+
+Use project_id to isolate a project, parent_id to link a work item to its larger task,
+and owner_session_id to assign that individual item to an agent. Nested subtasks are
+supported; roots have parent_id=null. Creation and expected-version PATCH already
+accept parent_id. Setting parent_id=null detaches an active task; changing it records
+previous/new parent UUIDs in its task.updated event. Ownership changes similarly record
+previous/new session UUIDs. Neither changes descendant ownership or lifecycle.
+
+New read endpoints (read action and project grants required):
+
+| Route | Result |
+|---|---|
+| GET /tasks/tree[?project=slug] | All authorized tasks as a complete forest |
+| GET /tasks/{uuid}/tree[?project=slug] | That task and all descendants |
+| GET /tasks?parent_id=UUID | Paginated immediate children |
+| GET /tasks?parent_id=none | Paginated root tasks |
+
+Tree endpoints accept only optional project, have no pagination/cap, and include all
+states. The subtree root is displayed at depth=0; root_id remains the original project
+hierarchy root. Cross-project filters and out-of-scope parent UUIDs cannot bypass grants.
+List filters state/profile/date/parent_id may be combined; summaries still count all
+children, independent of the list filter.
+
+Tree data contains nodes, root_ids, selection (all/subtree) and
+truncation.nodes=false. Nodes are flat preorder, sorted by project, then task key and
+UUID among siblings. Each node contains all ordinary task fields plus:
+
+- parent_key, depth, root_id, child_ids.
+- owner_profile (a label, not a session identity), pane_ids (unterminated assignments).
+- child_summary (direct children) and descendant_summary (all levels, excluding self).
+
+Each summary contains total, completed, active, blocked, awaiting_approval, failed,
+cancelled and by_state counts. completed excludes failed/cancelled; active includes
+queued, planning, running, awaiting_approval, blocked and review. These are counts,
+not effort estimates, and never update the parent's version/state. Child creation
+changes a computed parent summary without constituting a parent write.
+
+Task create/get/patch/transition/list responses include these computed fields. An
+idempotent replay returns the original response, so GET if current rollups are needed.
+Recovery adds task_hierarchy with selection=active_with_ancestors: it contains every
+active task and its ancestor chain, including terminal ancestors. Closed branches are
+intentionally omitted from that view, but summaries count them; fetch a subtree for
+full history. The projection is uncapped; it does not silently truncate active work.
+Existing active_tasks remains present and includes the same computed fields.
+
+No transition cascades. Parent completion is still an explicit allowed lifecycle
+transition. A terminal parent with active descendants appears in snapshot warnings.
+This permits intentional follow-up beneath a terminal task while keeping unfinished
+work visible. Parent linkage is grouping, not a dependency/scheduling engine.

@@ -7,6 +7,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
 from .client import Client, ClientError
 
 app = typer.Typer(invoke_without_command=True, help='Herdr State Manager — persistent state, no orchestration.')
@@ -29,12 +30,16 @@ def render(result, as_json=False):
     if isinstance(data, dict) and 'active_tasks' in data:
         console.print(f"[bold]HSM[/bold]  project={data['project'] or 'all authorized'}  revision={data['revision']}")
         console.print(f"Tasks: {len(data['active_tasks'])}  Agents: {len(data['agent_sessions'])}  Panes: {len(data['active_panes'])}  Pending approvals: {len(data['pending_approvals'])}")
-        render({'data': data['active_tasks']})
+        if 'task_hierarchy' in data:
+            render_task_tree(data['task_hierarchy'])
+        else:
+            render({'data': data['active_tasks']})
         for warning in data['warnings']:
             console.print(warning, style='yellow', markup=False)
     elif isinstance(data, list):
+        data = [{**row, 'subtasks': f"{row['descendant_summary']['completed']}/{row['descendant_summary']['total']}"} if 'descendant_summary' in row else row for row in data]
         table = Table()
-        fields = [k for k in ('id', 'project_id', 'task_key', 'title', 'state', 'profile', 'external_pane_id', 'runtime_status', 'event_type', 'actor') if any(k in row for row in data)]
+        fields = [k for k in ('id', 'project_id', 'task_key', 'title', 'parent_key', 'state', 'owner_profile', 'subtasks', 'profile', 'external_pane_id', 'runtime_status', 'event_type', 'actor') if any(k in row for row in data)]
         for field in fields:
             table.add_column(field)
         for row in data:
@@ -58,14 +63,42 @@ def status(project: str | None = None, json: bool = False):
     render(fetch('/state', {'project': project}), json)
 
 
-@app.command()
-def tasks(project: str | None = None, state: str | None = None, json: bool = False, limit: int = 50, offset: int = 0):
-    render(fetch('/tasks', {'project': project, 'state': state, 'limit': limit, 'offset': offset}), json)
+def render_task_tree(data):
+    tree = Tree('Tasks')
+    branches = {}
+    for node in data['nodes']:
+        counts = node['descendant_summary']
+        label = Text(f"{node['project_id']}/{node['task_key']}  {node['title']}  [{node['state']}]")
+        label.append(f"  owner={node.get('owner_profile') or 'unassigned'}", style='cyan')
+        if counts['total']:
+            label.append(f"  {counts['completed']}/{counts['total']} descendants completed", style='green')
+            for state in ('blocked', 'failed', 'cancelled', 'awaiting_approval'):
+                if counts[state]:
+                    label.append(f"  {state}={counts[state]}", style='yellow')
+        parent = branches.get(node['parent_id']) if node['depth'] else None
+        branches[node['id']] = (parent or tree).add(label)
+    console.print(tree if data['nodes'] else 'No tasks.')
 
 
 @app.command()
-def task(task_id: str, project: str | None = None, json: bool = False):
-    """Inspect a UUID; human task keys require --project."""
+def tasks(project: str | None = None, state: str | None = None, json: bool = False,
+          limit: int = 50, offset: int = 0, tree: bool = False, parent: str | None = None):
+    """List tasks, filter direct children, or show the complete authorized tree."""
+    if tree:
+        if state is not None or parent is not None or offset != 0 or limit != 50:
+            raise typer.BadParameter('--tree uses the complete hierarchy; use --state/--parent/pagination with the flat list')
+        result = fetch('/tasks/tree', {'project': project})
+        if json:
+            render(result, True)
+        else:
+            render_task_tree(result['data'])
+        return
+    parent_id = ('none' if parent == 'none' else resolve_task(parent, project)['id']) if parent else None
+    render(fetch('/tasks', {'project': project, 'state': state, 'limit': limit, 'offset': offset, 'parent_id': parent_id}), json)
+
+
+def resolve_task(task_id, project=None):
+    """Resolve a UUID or project-local human key through authenticated REST."""
     from uuid import UUID
     from urllib.parse import quote
     try:
@@ -86,7 +119,42 @@ def task(task_id: str, project: str | None = None, json: bool = False):
                 typer.echo('Task not found.', err=True)
                 raise typer.Exit(1)
             offset += 200
-    render(result, json)
+    if project is not None and result['data']['project_id'] != project:
+        raise typer.BadParameter('Task does not belong to --project')
+    return result['data']
+
+
+@app.command()
+def task(task_id: str, project: str | None = None, json: bool = False, tree: bool = False):
+    """Inspect a task or its complete subtree. Human keys require --project."""
+    item = resolve_task(task_id, project)
+    if tree:
+        result = fetch('/tasks/' + item['id'] + '/tree')
+        if json:
+            render(result, True)
+        else:
+            render_task_tree(result['data'])
+    else:
+        render({'data': item}, json)
+
+
+@app.command()
+def subtask(parent: str, key: str = typer.Option(...), title: str = typer.Option(...),
+            objective: str = typer.Option(...), idempotency_key: str = typer.Option(...),
+            project: str | None = None, owner_session: str | None = None, json: bool = False):
+    """Create a queued child of a confirmed parent. Does not spawn or transition agents."""
+    item = resolve_task(parent, project)
+    payload = {'project_id': item['project_id'], 'parent_id': item['id'], 'task_key': key,
+               'title': title, 'objective': objective}
+    if owner_session:
+        payload['owner_session_id'] = owner_session
+    try:
+        result = Client().request('/tasks', method='POST', data=payload, idempotency_key=idempotency_key)
+    except ClientError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1)
+    verified = fetch('/tasks/' + result['data']['id'])
+    render(verified, json)
 
 
 @app.command()

@@ -1,8 +1,11 @@
 # Implementation verification — 2026-10-16
 
-113 tests passed (Python 3.13.14), including:
+119 tests passed (Python 3.13.14), including:
 
 - Complete 9-by-9 state transition matrix and terminal immutability.
+- Multi-agent parent/child trees, nested progress, project-scoped tree reads,
+  versioned/audited reparenting, terminal ancestor recovery and CLI subtask creation.
+- Watch hierarchy columns show task depth, parent, owner and descendant completion.
 - Concurrent task writers, approval decisions and single-use consumption races.
 - Idempotent retries, payload conflicts, revocation checks and no extra events.
 - Cross-project authorization and parent/owner/session/pane relationships.
