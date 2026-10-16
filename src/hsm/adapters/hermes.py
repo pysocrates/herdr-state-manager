@@ -16,7 +16,9 @@ class HermesAdapter:
         self.path = Path(database_path) if database_path else None
 
     def observe(self, identifiers):
-        if self.path is None or not self.path.is_file():
+        if self.path is None:
+            return Observations(False, configured=False)
+        if not self.path.is_file():
             return Observations(False)
         try:
             with sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True, timeout=2) as db:

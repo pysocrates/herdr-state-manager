@@ -14,6 +14,7 @@ class Observations:
     available: bool
     resources: dict[str, Observation] = field(default_factory=dict)
     unregistered_count: int = 0
+    configured: bool = True
 
 
 class RuntimeAdapter(Protocol):
@@ -22,4 +23,4 @@ class RuntimeAdapter(Protocol):
 
 class NoopAdapter:
     def observe(self, identifiers: list[str]) -> Observations:
-        return Observations(False)
+        return Observations(False, configured=False)

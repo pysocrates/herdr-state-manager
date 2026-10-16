@@ -1,0 +1,9 @@
+name: hsm-approval-observer
+version: 0.1.0
+description: Best-effort native approval observations; never grants authorization
+provides_hooks:
+  - pre_approval_request
+  - post_approval_response
+requires_env:
+  - HSM_OBSERVER_PROJECT
+  - HSM_OBSERVER_TOKEN_FILE

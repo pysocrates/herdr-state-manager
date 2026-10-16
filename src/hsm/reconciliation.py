@@ -72,9 +72,10 @@ def reconcile(engine, config, herdr=None, hermes=None):
                     if health is None:
                         health = AdapterHealth(project_id=project, provider=provider, status='unknown')
                         db.add(health)
-                    health.status = 'available' if observations.available else 'unavailable'
+                    health.status = ('not_configured' if not observations.configured else
+                                     'available' if observations.available else 'unavailable')
                     health.observed_at = now()
-                    incident(project, 'adapter_unavailable', provider, not observations.available)
+                    incident(project, 'adapter_unavailable', provider, observations.configured and not observations.available)
             for model, registrations in [(Pane, panes), (AgentSession, agents)]:
                 for ident, project, external in registrations:
                     item = db.get(model, ident)
@@ -88,7 +89,7 @@ def reconcile(engine, config, herdr=None, hermes=None):
                     item.last_observed_at = now()
                     observation = observations.resources.get(external) if external else None
                     if not observations.available:
-                        item.runtime_status = 'unavailable'
+                        item.runtime_status = 'unavailable' if observations.configured else 'unknown'
                         continue  # Existing missing incident is not falsely resolved.
                     if external is None:
                         item.runtime_status = 'unknown'

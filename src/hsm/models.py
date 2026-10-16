@@ -122,6 +122,32 @@ class AdapterHealth(Base):
     observed_at: Mapped[str] = mapped_column(default=now)
 
 
+class ApprovalObservation(Base):
+    __tablename__ = 'approval_observations'
+    __table_args__ = (UniqueConstraint('project_id', 'reporter', 'correlation_key'),)
+    id: Mapped[str] = mapped_column(primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), index=True)
+    reporter: Mapped[str]
+    correlation_key: Mapped[str]
+    correlation: Mapped[str]
+    native_request_id: Mapped[str | None]
+    surface: Mapped[str]
+    session_key_hash: Mapped[str | None]
+    command_hash: Mapped[str | None]
+    status: Mapped[str] = mapped_column(default='pending')
+    choice: Mapped[str | None]
+    created_at: Mapped[str] = mapped_column(default=now)
+    requested_at: Mapped[str | None]
+    responded_at: Mapped[str | None]
+
+
+class ApprovalObservationReceipt(Base):
+    __tablename__ = 'approval_observation_receipts'
+    id: Mapped[str] = mapped_column(primary_key=True)
+    digest: Mapped[str]
+    observation_id: Mapped[str] = mapped_column(ForeignKey('approval_observations.id'))
+
+
 class Approval(Base):
     __tablename__ = 'approvals'
     id: Mapped[str] = mapped_column(primary_key=True, default=uid)

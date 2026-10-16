@@ -51,8 +51,24 @@ def test_noop_never_marks_missing(env):
     cfg, app, call = env
     pane = call('POST', '/panes', {'project_id': 'alpha', 'external_pane_id': 'present-or-not'}).json['data']
     reconcile(app.extensions['hsm_engine'], cfg, NoopAdapter(), NoopAdapter())
-    assert call('GET', '/panes/' + pane['id']).json['data']['runtime_status'] == 'unavailable'
-    assert not any(i['incident_type'] == 'pane_missing' for i in call('GET', '/incidents').json['data'])
+    assert call('GET', '/panes/' + pane['id']).json['data']['runtime_status'] == 'unknown'
+    assert not any(i['incident_type'] in {'pane_missing', 'adapter_unavailable'} for i in call('GET', '/incidents').json['data'])
+    state = call('GET', '/state?project=alpha').json['data']
+    assert all(h['status'] == 'not_configured' for h in state['adapter_health'])
+    assert any('not_configured' in warning for warning in state['warnings'])
+
+
+def test_disabled_adapter_resolves_false_outage_without_claiming_liveness(env):
+    cfg, app, call = env
+    agent = call('POST', '/agent-sessions', {'project_id': 'alpha', 'profile': 'demo',
+                                          'external_session_id': 'demo-id'}).json['data']
+    reconcile(app.extensions['hsm_engine'], cfg, FakeAdapter(), FakeAdapter(False))
+    assert call('GET', '/agent-sessions/' + agent['id']).json['data']['runtime_status'] == 'unavailable'
+    reconcile(app.extensions['hsm_engine'], cfg, FakeAdapter(), HermesAdapter())
+    assert call('GET', '/agent-sessions/' + agent['id']).json['data']['runtime_status'] == 'unknown'
+    incidents = call('GET', '/incidents?project=alpha').json['data']
+    assert all(i['status'] == 'resolved' for i in incidents if i['incident_type'] == 'adapter_unavailable')
+    assert not any(i['incident_type'] == 'session_missing' for i in incidents)
 
 
 def test_herdr_verified_schema_mapping():
@@ -85,6 +101,8 @@ def test_hermes_selects_metadata_only(tmp_path):
     assert result.resources['s'].telemetry['input_tokens'] == 100
     assert 'not-there' not in result.resources
     assert not HermesAdapter().observe([]).available
+    assert not HermesAdapter().observe([]).configured
+    assert HermesAdapter(tmp_path / 'missing.db').observe([]).configured
     bad = tmp_path / 'bad.db'
     bad.write_text('invalid')
     assert not HermesAdapter(bad).observe([]).available

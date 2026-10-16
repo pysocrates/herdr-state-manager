@@ -32,7 +32,10 @@ columns. It bounds SQLite execution and rejects oversized metadata. No live sess
 history was read during development or the pane-observation trial.
 
 Configure project `configuration.hermes_metadata_database` at project creation to
-opt in. Leave absent for unavailable/no-op. The operator must explicitly grant the
+opt in. Leave absent for `not_configured`/no-op. Disabled adapters are not runtime
+outages and do not create adapter-unavailable incidents. A configured adapter that
+cannot read its source still reports `unavailable`; unobserved agent liveness is
+`unknown`, never inferred as working from database history. The operator must explicitly grant the
 service account read/traverse access to that file and its SQLite WAL/SHM directory;
 do not run HSM as root or open all private Hermes configuration. The systemd template's
 ProtectHome hides home paths: use a narrowly reviewed drop-in for a dedicated metadata
@@ -63,6 +66,22 @@ Unregistered runtime panes cannot safely be attributed to a project and are not 
    tool does not enforce consumption, HSM cannot prevent bypass.
 7. Report review/completion explicitly. Neither idle/done telemetry nor approval
    resolution changes task lifecycle. Terminal follow-up requires a new linked task.
+
+## Native approval history
+
+The TUI Approvals tab now offers a source selector: persisted HSM authorization
+grants or native Hermes observations. Both are paginated, including final outcomes;
+resolved decisions are not removed from the history view. An observed native
+decision never grants HSM execution permission.
+
+The optional observer plugin and REST ingestion contract are documented in
+[`deployment/hermes-approval-observer/README.md`](../deployment/hermes-approval-observer/README.md).
+Installed Hermes 0.19.0 lacks unique approval request IDs, so request/outcome
+callbacks are intentionally separate records, with `missing_request_id` and
+`unpaired request` labels rather than guessed pairing or live-pending claims.
+Delivery is bounded and best-effort; successfully received records persist, but
+process exit or an extended API outage can lose undelivered telemetry. Existing
+Hermes sessions must restart to load the observer; past prompts are not backfilled.
 
 ## Optional stdio MCP
 

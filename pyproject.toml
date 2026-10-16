@@ -23,7 +23,7 @@ where = ["src"]
 [tool.setuptools.data-files]
 "share/hsm" = ["alembic.ini"]
 "share/hsm/migrations" = ["migrations/env.py"]
-"share/hsm/migrations/versions" = ["migrations/versions/0001_core.py", "migrations/versions/0002_observations_approvals.py"]
+"share/hsm/migrations/versions" = ["migrations/versions/0001_core.py", "migrations/versions/0002_observations_approvals.py", "migrations/versions/0003_approval_observations.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -15,6 +15,8 @@ from .schemas import ProjectCreate, TaskCreate, TaskPatch, Transition, SessionCr
 from .services import Service, Problem, serialize
 from .responses import Envelope
 from .state_machine import TRANSITIONS
+from .models import ApprovalObservation
+from .approval_observations import ObservationCreate, ingest
 
 
 class JsonLog(logging.Formatter):
@@ -112,7 +114,7 @@ def create_app(config=None):
             allowed |= {'state', 'profile', 'parent_id', 'created_after', 'created_before'}
         if model is Event:
             allowed |= {'task_id'}
-        if model in {Approval, Incident}:
+        if model in {Approval, Incident, ApprovalObservation}:
             allowed |= {'status'}
         if model is AgentSession:
             allowed |= {'profile'}
@@ -151,9 +153,19 @@ def create_app(config=None):
     def ready():
         with transaction(engine) as db:
             revision = db.execute(text('SELECT version_num FROM alembic_version')).scalar()
-            if revision != '0002':
+            if revision != '0003':
                 raise Problem(503, 'schema_not_ready', 'Schema migration required')
         return jsonify(data={'status': 'ready', 'schema_revision': revision})
+
+    @app.route('/api/v1/approval-observations', methods=['GET', 'POST'])
+    def approval_observations():
+        if request.method == 'GET':
+            filters, limit, offset = query_options(ApprovalObservation)
+            if filters.get('status') not in {None, 'pending', 'outcome'}:
+                raise Problem(422, 'query_validation', 'Unknown observation status')
+            return run(lambda s: s.listing(ApprovalObservation, filters, limit, offset))
+        data = body(ObservationCreate)
+        return run(lambda s: {'data': ingest(s, data)}, True)
 
     @app.route('/api/v1/projects', methods=['GET', 'POST'])
     def projects():

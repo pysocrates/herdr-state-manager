@@ -282,5 +282,5 @@ class Service:
         health = list(self.db.scalars(select(AdapterHealth).where(AdapterHealth.project_id.in_(projects))))
         warnings = [f'{p}: {provider} has no runtime observation' for p in projects for provider in ('herdr', 'hermes')
                     if not any(h.project_id == p and h.provider == provider for h in health)]
-        warnings.extend(f'{h.project_id}: {h.provider} unavailable at {h.observed_at}' for h in health if h.status != 'available')
+        warnings.extend(f'{h.project_id}: {h.provider} {h.status} at {h.observed_at}' for h in health if h.status != 'available')
         return sorted(warnings)
