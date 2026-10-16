@@ -1,0 +1,11 @@
+[Unit]
+Description=Observe HSM runtime registrations every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=hsm-reconcile.service
+
+[Install]
+WantedBy=timers.target

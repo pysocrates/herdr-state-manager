@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "herdr-state-manager"
+version = "0.1.0"
+description = "Deterministic project state and context recovery for agent environments"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["Flask>=3.1,<4", "SQLAlchemy>=2.0,<3", "alembic>=1.15,<2", "pydantic>=2.10,<3", "typer>=0.16,<1", "rich>=13,<15", "textual>=1,<7", "gunicorn>=23,<24"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+mcp = ["mcp>=1,<2"]
+
+[project.scripts]
+hsm = "hsm.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.data-files]
+"share/hsm" = ["alembic.ini"]
+"share/hsm/migrations" = ["migrations/env.py"]
+"share/hsm/migrations/versions" = ["migrations/versions/0001_core.py", "migrations/versions/0002_observations_approvals.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

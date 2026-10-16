@@ -1,0 +1,78 @@
+---
+name: herdr-state-manager
+description: Register and update HSM tasks, agent ownership and Herdr pane assignments; recover project state after Hermes context resets; request exact-action operator approvals. Use when working with an existing Herdr State Manager service, not for scheduling agents or managing the HSM installation.
+license: MIT
+---
+
+# Herdr State Manager
+
+HSM records durable state; the Hermes orchestrator still plans, delegates and executes.
+A request to register work authorizes bookkeeping, not executing that work. Runtime
+idle/done status and approval decisions never establish task completion.
+
+## Connect and recover first
+
+Use the configured `HSM_API_URL` (default `http://127.0.0.1:8787`) and a scoped **agent**
+credential via `HSM_TOKEN_FILE` or `HSM_TOKEN`. Read secrets inside the request process;
+never print tokens, inspect the server's credential store, source an operator environment,
+or switch to operator credentials after a denial. If no agent credential is configured,
+request its private file path or provisioning; do not guess deployment paths.
+
+If HSM MCP tools are available, use them; they reach the same authenticated API.
+Otherwise use `scripts/hsm_request.py` from this skill directory. It needs only Python
+3.12+ and outputs JSON. Paths below are relative to that directory; resolve the actual
+skill location before invoking them. Read [references/workflows.md](references/workflows.md)
+for concrete commands and fields.
+
+Start with `GET /state` (or `/state?project=SLUG` via `--query project=SLUG`). Inspect
+projects, active task keys/versions, owners, panes, approvals and warnings. For a harmless
+demo with exactly one authorized project, use that project; do not invent a project
+or create administrative resources. Resolve ambiguous project scope before writing.
+For an old or terminal task absent from active_tasks, use the paginated `/tasks` list.
+
+## Register only what is known
+
+- Task creation needs project_id, task_key, title, objective and a reusable logical
+  operation idempotency key. Newly created tasks are queued. GET the returned UUID
+  independently to verify registration. Check existing keys before creating duplicates.
+- Agent profiles and sessions differ. Register a session with the actual known profile;
+  external_session_id is optional. Unknown profile/session identity is not a reason to
+  fabricate one. Preserve the returned internal UUID for ownership.
+- Assign owner_session_id with a task PATCH using the current expected_version.
+- Inspect existing pane registrations before creating one. Link the correct known
+  pane through its **internal HSM UUID**, not its external Herdr pane ID. Use confirmed
+  runtime identifiers; do not match identities from titles, working status or names.
+- A reported Herdr Hermes session reference of kind=id can confirm identity. A null
+  reference cannot. Do not query entire conversations to discover identity.
+- Parents, owners, pane assignments and approvals must stay within one project.
+
+Session/pane creation has no idempotency guarantee. After an ambiguous response,
+inspect registrations before retrying; duplicate session records are otherwise possible.
+
+## Lifecycle and retries
+
+Use dedicated `/tasks/UUID/transition` requests; task PATCH cannot set state.
+All task edits/transitions require expected_version. Read
+[references/workflows.md](references/workflows.md#lifecycle-and-conflicts) for allowed edges.
+On 409, re-read and reconcile intent; do not blindly increment the version or bypass
+planning/review. Terminal tasks remain terminal; create a linked follow-up when authorized.
+
+Task creation, transitions and approval creation require Idempotency-Key. Retain the
+same key **and identical payload** for an ambiguous retry within 24 hours. Use a new key
+for a different logical operation. Do not automatically retry non-idempotent writes.
+On 401/403, fix configuration/grants with the operator; on 503, a bounded retry of an
+idempotent operation may be appropriate. Stop and report unresolved failures.
+
+## Approvals and handoff
+
+Read [references/approvals.md](references/approvals.md) when an authorized workflow
+needs operator permission. Request an exact action, target and immutable artifact with
+expiry. Agents never resolve their own approvals. Approval resolution, task resumption,
+authorization consumption and actual execution are separate operations. Consumption is
+single-use and has no automatic retry. No helper in this skill executes the action.
+
+Before handing off or losing context, verify HSM reflects actual task state, ownership,
+pane relationships and unresolved approvals. Recovery starts from a fresh snapshot;
+respect runtime-source warnings and explicit history truncation. Keep verified project
+knowledge in the external knowledge base. Do not store transcripts or secrets in HSM.
+Report confirmed records/versions and missing links; do not claim execution from bookkeeping.
