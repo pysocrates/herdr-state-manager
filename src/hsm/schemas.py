@@ -32,6 +32,8 @@ class ProjectCreate(Input):
 
 
 class TaskCreate(Input):
+    resource_labels: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=100)
+    spawn_reason: Text | None = None
     project_id: Slug
     task_key: Annotated[str, Field(min_length=1, max_length=100)]
     title: Text
@@ -44,6 +46,7 @@ class TaskCreate(Input):
 
 
 class TaskPatch(Input):
+    resource_labels: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=100)
     expected_version: Annotated[int, Field(ge=1)]
     title: Text | None = None
     objective: Text | None = None
@@ -57,6 +60,29 @@ class TaskPatch(Input):
 class Transition(Input):
     expected_version: Annotated[int, Field(ge=1)]
     state: Literal['queued', 'planning', 'running', 'awaiting_approval', 'blocked', 'review', 'completed', 'failed', 'cancelled']
+
+
+class ContractSpec(Input):
+    objective: Text
+    prohibited_operations: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=100)
+    stop_when_satisfied: bool = True
+    expansion_requires_authorization: bool = True
+    resource_labels: list[Annotated[str, Field(min_length=1, max_length=200)]] | None = Field(default=None, max_length=100)
+    repository_path: Text | None = None
+    worktree_path: Text | None = None
+    base_commit: Identifier | None = None
+    max_children: Annotated[int, Field(ge=0, le=1000000)] | None = None
+    max_descendant_depth: Annotated[int, Field(ge=0, le=1000000)] | None = None
+    runtime_seconds: Annotated[int, Field(ge=0, le=315360000)] | None = None
+    retry_budget: Annotated[int, Field(ge=0, le=1000000)] | None = None
+    required_deliverables: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=100)
+
+
+class ContractWrite(Input):
+    expected_version: Annotated[int, Field(ge=1)]
+    expected_contract_version: Annotated[int, Field(ge=0)]
+    reason: Text
+    contract: ContractSpec
 
 
 class SessionCreate(Input):

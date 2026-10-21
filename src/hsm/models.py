@@ -34,7 +34,7 @@ class Task(Base):
     title: Mapped[str]
     objective: Mapped[str] = mapped_column(Text)
     state: Mapped[str] = mapped_column(default='queued', index=True)
-    parent_id: Mapped[str | None] = mapped_column(ForeignKey('tasks.id'))
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey('tasks.id'), index=True)
     owner_session_id: Mapped[str | None] = mapped_column(ForeignKey('agent_sessions.id'))
     repository_path: Mapped[str | None]
     worktree_path: Mapped[str | None]
@@ -43,6 +43,34 @@ class Task(Base):
     updated_at: Mapped[str] = mapped_column(default=now)
     completed_at: Mapped[str | None]
     version: Mapped[int] = mapped_column(default=1)
+    resource_labels: Mapped[list] = mapped_column(JSON, default=list, server_default='[]')
+
+
+class TaskContract(Base):
+    __tablename__ = 'task_contracts'
+    __table_args__ = (UniqueConstraint('task_id', 'revision'),)
+    id: Mapped[str] = mapped_column(primary_key=True, default=uid)
+    task_id: Mapped[str] = mapped_column(ForeignKey('tasks.id'), index=True)
+    revision: Mapped[int]
+    specification: Mapped[dict] = mapped_column(JSON)
+    actor: Mapped[str]
+    reason: Mapped[str]
+    created_at: Mapped[str] = mapped_column(default=now)
+    authorization_started_at: Mapped[str]
+    expected_task_version: Mapped[int]
+    expected_contract_version: Mapped[int]
+
+
+class Delegation(Base):
+    __tablename__ = 'delegations'
+    id: Mapped[str] = mapped_column(primary_key=True, default=uid)
+    task_id: Mapped[str] = mapped_column(ForeignKey('tasks.id'), index=True)
+    parent_id: Mapped[str] = mapped_column(ForeignKey('tasks.id'), index=True)
+    parent_contract_id: Mapped[str | None] = mapped_column(ForeignKey('task_contracts.id'))
+    governing_contract_ids: Mapped[list] = mapped_column(JSON, default=list)
+    authorized_by: Mapped[str]
+    spawn_reason: Mapped[str | None]
+    created_at: Mapped[str] = mapped_column(default=now)
 
 
 class AgentSession(Base):

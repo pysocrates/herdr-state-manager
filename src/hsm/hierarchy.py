@@ -35,7 +35,7 @@ def task_forest(tasks):
             raise ValueError('Invalid task hierarchy')
         visited.add(ident)
         node = nodes[ident]
-        node.update(depth=depth, root_id=root,
+        node.update(depth=depth, delegation_depth=depth, root_id=root,
                     parent_key=nodes.get(node.get('parent_id'), {}).get('task_key'),
                     child_ids=list(children[ident]))
         preorder.append(node)

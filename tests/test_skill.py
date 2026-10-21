@@ -32,6 +32,9 @@ def test_skill_helper_registration_readback_retry_and_scope(http_api, tmp_path):
     private.write_text('a' * 32)
     readback = invoke(http_api, 'GET', '/tasks/' + task['id'], token_file=private)
     assert readback.returncode == 0 and json.loads(readback.stdout)['data'] == task
+    contract = invoke(http_api, 'GET', '/tasks/' + task['id'] + '/contract', token_file=private)
+    assert contract.returncode == 0, contract.stderr
+    assert json.loads(contract.stdout)['data'] == {'current': None, 'history': []}
     denied = invoke(http_api, 'GET', '/state', '--query', 'project=beta')
     assert denied.returncode == 1
     assert json.loads(denied.stderr)['error']['status'] == 403
@@ -47,6 +50,8 @@ def test_skill_helper_registration_readback_retry_and_scope(http_api, tmp_path):
 def test_skill_helper_rejects_operator_routes_missing_keys_and_remote_http():
     denied = invoke('http://127.0.0.1:1', 'POST', '/approvals/00000000-0000-0000-0000-000000000001/resolve', '--data-file', '-', body={})
     assert denied.returncode == 2 and 'Unsupported agent endpoint' in denied.stderr
+    contract_write = invoke('http://127.0.0.1:1', 'POST', '/tasks/00000000-0000-0000-0000-000000000001/contract', '--data-file', '-', body={})
+    assert contract_write.returncode == 2 and 'Unsupported agent endpoint' in contract_write.stderr
     missing = invoke('http://127.0.0.1:1', 'POST', '/tasks', '--data-file', '-', body={})
     assert missing.returncode == 2 and 'requires --idempotency-key' in missing.stderr
     remote = invoke('http://example.com', 'GET', '/state')

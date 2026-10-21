@@ -45,8 +45,15 @@ class Service:
         return item
 
     def event(self, project, kind, task=None, previous=None, new=None, details=None):
+        details = dict(details or {})
+        if task:
+            from .governance import ancestry
+            # Snapshot now, including after a denial's savepoint rollback. Never
+            # reinterpret old events using the task's later contract revisions.
+            details['governing_contract_ids'] = [
+                revision.id for _, revision in ancestry(self, self.db.get(Task, task))]
         self.db.add(Event(project_id=project, task_id=task, actor=self.principal['identity'],
-                          event_type=kind, previous_state=previous, new_state=new, details=details or {}))
+                          event_type=kind, previous_state=previous, new_state=new, details=details))
 
     def projects(self):
         query = select(Project).order_by(Project.id)
@@ -82,9 +89,12 @@ class Service:
     def create_task(self, data):
         self.project(data['project_id'], 'tasks:write')
         self.references(data['project_id'], data)
-        item = Task(**data)
+        from .governance import check_create, record_delegation
+        check_create(self, data)
+        item = Task(**{k: v for k, v in data.items() if k != 'spawn_reason'})
         self.db.add(item)
         self.db.flush()
+        record_delegation(self, item, data.get('spawn_reason'))
         self.event(item.project_id, 'task.created', item.id, new=item.state,
                    details={'parent_id': item.parent_id, 'owner_session_id': item.owner_session_id})
         return self.task_view(item)
@@ -95,6 +105,10 @@ class Service:
             raise Problem(409, 'stale_version', 'Task version has changed')
         if item.state not in ACTIVE:
             raise Problem(409, 'terminal_task', 'Terminal tasks are immutable')
+        from .governance import check_patch, record_delegation
+        if not transition:
+            self.references(item.project_id, data, ident)
+        check_patch(self, item, data, transition)
         previous = item.state
         assignment_changes = {key: {'previous_id': getattr(item, key), 'new_id': data[key]}
                               for key in ('parent_id', 'owner_session_id')
@@ -113,6 +127,8 @@ class Service:
                         raise Problem(422, 'validation', f'{key} cannot be null')
                     setattr(item, key, value)
         item.version += 1
+        if 'parent_id' in assignment_changes:
+            record_delegation(self, item)
         item.updated_at = now()
         self.event(item.project_id, 'task.transitioned' if transition else 'task.updated',
                    item.id, previous if transition else None, item.state if transition else None,
@@ -153,6 +169,17 @@ class Service:
         self.db.flush()
         return serialize(item)
 
+    def guarded(self, operation):
+        """Only policy denials commit sanitized evidence, after savepoint rollback."""
+        from .governance import Denied
+        try:
+            with self.db.begin_nested():
+                return operation()
+        except Denied as error:
+            self.event(error.project, 'governance.denied', error.task,
+                       details={'code': error.code})
+            return {'error': {'code': error.code, 'message': 'Contract authorization denied', 'details': []}}, 409
+
     def replay(self, route, key, data, operation):
         if not key or len(key) > 128 or any(ord(c) < 33 or ord(c) > 126 for c in key):
             raise Problem(422, 'idempotency_key', 'A printable Idempotency-Key (1..128) is required')
@@ -166,7 +193,7 @@ class Service:
         if old:
             self.db.delete(old)
             self.db.flush()
-        body, status = operation()
+        body, status = self.guarded(operation)
         self.db.add(Idempotency(scope=scope, digest=digest, response=body, status=status,
                                expires_at=(datetime.now(timezone.utc) + timedelta(hours=24)).isoformat().replace('+00:00', 'Z')))
         return body, status
@@ -208,10 +235,16 @@ class Service:
         panes = {}
         for pane in self.db.scalars(select(Pane).where(Pane.project_id.in_(project_ids), Pane.terminated_at.is_(None)).order_by(Pane.id)):
             panes.setdefault(pane.task_id, []).append(pane.id)
+        from .models import Delegation
+        delegations = {}
+        for record in self.db.scalars(select(Delegation).join(Task, Delegation.task_id == Task.id)
+                .where(Task.project_id.in_(project_ids)).order_by(Delegation.created_at, Delegation.id)):
+            delegations.setdefault(record.task_id, []).append(serialize(record))
         for task in tasks:
             owner = sessions.get(task['owner_session_id'])
             task['owner_profile'] = owner.profile if owner else None
             task['pane_ids'] = panes.get(task['id'], [])
+            task['delegation_history'] = delegations.get(task['id'], [])
         return task_forest(tasks)
 
     def task_view(self, item):

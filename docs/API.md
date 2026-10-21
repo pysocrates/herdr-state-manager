@@ -1,5 +1,102 @@
 # API v1
 
+## Checkpoint B: contracts (schema revision 0004)
+
+`GET /tasks/{uuid}/contract` requires project `read` and returns
+`{data:{current: CONTRACT_OR_NULL, history:[CONTRACT,...]}}` in revision order.
+History is complete, unpaginated and read-only, including on terminal tasks.
+
+`POST /tasks/{uuid}/contract` requires operator role, project `tasks:write` and
+`Idempotency-Key`. Both initial creation and amendment use the same route:
+
+```json
+{
+  "expected_version": 1,
+  "expected_contract_version": 0,
+  "reason": "Approved decomposition and resource scope",
+  "contract": {
+    "objective": "Implement the parser",
+    "resource_labels": ["repo:parser"],
+    "repository_path": null,
+    "worktree_path": null,
+    "base_commit": null,
+    "max_children": 2,
+    "max_descendant_depth": 1,
+    "runtime_seconds": 3600,
+    "retry_budget": 1,
+    "required_deliverables": ["parser-tests"],
+    "prohibited_operations": ["task.transition.running"],
+    "stop_when_satisfied": true,
+    "expansion_requires_authorization": true
+  }
+}
+```
+
+201 returns `{data:{contract:CONTRACT,task_version:2}}`. Contract records contain
+id, task_id, revision, full specification, actor, reason, created_at,
+authorization_started_at, expected_task_version and expected_contract_version.
+Amendments send the current task version and current contract revision. They are
+full replacements, not patches: omitted limits default null, deliverables default
+[], paths/base_commit default null. Objective is required. Omitted allowed labels
+default null (unrestricted); [] allows no declared resources. Non-null labels also
+replace the task's declared labels; null leaves its labels unchanged. Never submit
+secrets in reasons or any persisted metadata.
+
+Task POST additionally accepts `resource_labels` (default []) and `spawn_reason`.
+For a child under any contract, a nonblank spawn_reason is required; parent_id uses
+the existing task creation route. `authorized_by` is never accepted from callers.
+Task responses include immutable `delegation_history` (original parent, governing
+revision IDs, authorizer, reason and time) and absolute `delegation_depth`.
+
+Under governance, ordinary PATCH cannot change objective/paths/base_commit/labels.
+Governed parent changes, including detach and moving an uncontracted subtree with
+a contracted descendant, are denied rather than implicitly transferring authority.
+Contract-free reparenting still works. The task lifecycle matrix is unchanged.
+Every ancestor's direct-child lifetime budget, relative descendant depth, exact
+resource labels and elapsed authorization window apply to child creation. Expiry
+also gates ordinary PATCH and transitions, except valid failed/cancelled exits.
+The window starts at the persisted first contract revision, not process start;
+amendments and restarts do not reset it. Resource labels match by exact equality,
+including non-null path strings; no glob/prefix/path access is inferred.
+
+Governance denial returns 409 with a stable code: `child_budget`,
+`descendant_depth`, `resource_scope`, `spawn_reason_required`,
+`authorization_expired`, `contract_amendment_required`, `prohibited_operation`, or `governed_reparent`.
+It commits only sanitized audit evidence and, for idempotent POST, the cached
+denial response. No partial task/revision/delegation mutation survives. Retrying
+the same POST key/payload returns that denial for 24h, even after policy changes;
+a deliberate new attempt needs a new key. Other validation/auth/stale failures
+retain rollback behavior. PATCH still has no idempotency key protocol.
+
+`prohibited_operations` defaults to [] and accepts at most 100 nonempty strings,
+each at most 200 characters. Exact case-sensitive enforced identifiers are
+`task.create` (child creation under the contract), `task.patch` (ordinary PATCH),
+`task.transition` (all transitions), and `task.transition.<state>` for each lifecycle
+state in the transition schema. All applicable ancestor prohibitions apply; valid
+failed/cancelled exits always remain available. Unknown labels are advisory only;
+there are no wildcards or arbitrary tool/command restrictions. These identifiers
+do not prohibit explicit operator contract amendments or other HSM endpoints.
+
+`stop_when_satisfied` and `expansion_requires_authorization` are strict booleans,
+both default true. Stop-on-satisfaction is persisted now; enforcement with
+deliverables belongs to C. There is no automatic scope expansion even when
+expansion_requires_authorization is false: every amendment remains an explicit
+operator action. Older stored contract JSON may omit these fields; effective
+defaults are [], true, true respectively, without rewriting historical JSON.
+
+Every newly written task-associated event has `details.governing_contract_ids`,
+captured at write time in task-to-root order (including every contracted ancestor;
+[] for no contract). Denials capture authoritative ancestry after rollback in the
+same writer transaction. `contract.revised` also identifies the new `contract_id`
+and revision. Later amendments never relabel old events. Preexisting events
+without this field have unknown attribution, not inferred current attribution.
+
+**B limitation:** retry budgets, stop-on-satisfaction and deliverable requirements are stored but not
+operationally enforced until checkpoint C. B does not infer work semantics,
+observe external retries, validate external files, execute arbitrary tools or kill
+processes. See DESIGN_CONTRACT for exact numeric limits, legacy migration baseline,
+authorization-window and conservative reparent semantics.
+
 Base `/api/v1`. Send `Authorization: Bearer TOKEN` for every endpoint except
 `GET /health/live`. Content-Type application/json for writes. All identifiers are
 UUIDs except project slugs. Task keys are unique inside a project.
@@ -71,7 +168,8 @@ Keys scope to principal + POST route + key, 1..128 non-space printable ASCII. Sa
 canonical validated payload returns original status/body without new events for 24h;
 a changed payload conflicts. Expired keys may be reused; inspect before retrying old
 operations. Replays still check current project grants. Failed operations do not
-reserve a key. Register session/pane retries are not idempotent; inspect registrations
+reserve a key except the explicit governance denials documented above.
+Register session/pane retries are not idempotent; inspect registrations
 after ambiguous timeouts (pane identity has a per-project unique constraint).
 
 ## Approvals

@@ -1,5 +1,106 @@
 # HSM v1 design contract
 
+## Checkpoint B: opt-in contract and delegation authority
+
+Revision 0004 adds immutable-by-public-API contract revisions and delegation records.
+There is no API for deleting or changing historical revisions; local database
+administrators remain outside this trust boundary. Contracts require an operator
+with `tasks:write`, explicit nonblank reason, expected task version and expected
+contract revision (0 before creation), and an idempotency key. A successful full
+replacement appends a revision and increments the task version. It records actor,
+UTC timestamp, both expected versions and a persistent authorization time origin.
+Terminal tasks remain immutable. Ordinary task writers cannot amend contracts.
+
+### Exact enforcement
+
+- Legacy tasks without a contract anywhere in their ancestry retain unrestricted
+  task bookkeeping. Governance is opt-in, not an execution or ownership ACL.
+- Every creation checks all ancestor contracts under the existing BEGIN IMMEDIATE
+  transaction. `max_children` counts lifetime *direct-child authorization records*,
+  including terminal children and prior attachments, not active tasks. Creating a
+  child or attaching a legacy task consumes one record; replay consumes none.
+  Amendment does not reset usage. `max_descendant_depth` measures edges relative
+  to each ancestor with that limit (0 forbids descendants, 1 permits only children).
+- Initial contracts and amendments validate all existing descendants' labels/depth
+  and consumed direct-child records before mutation. Tightening below existing use
+  is denied. Limits do not cascade lifecycle state or affect owner assignments.
+- **Governed reparenting is intentionally unsupported in B.** PATCH rejects a
+  changed parent if the source ancestry, destination ancestry, or any node in the
+  moved subtree has a contract. This includes detachment and operator requests;
+  no implicit waiver exists. Contract-free reparenting remains supported and records
+  each attachment without overwriting original delegation provenance. Cycle and
+  project-reference checks still apply first. This conservative rule avoids budget
+  transfer or ancestry-stripping bypasses rather than silently interpreting a move.
+- Task `resource_labels` and non-null repository/worktree path strings form the
+  declared resource set. This set must be a subset of each applicable contract's
+  `resource_labels` by **exact case-sensitive string equality**. No normalization,
+  prefixes, globs, filesystem traversal, fetch, or path access occurs. Thus `repo/x`
+  does not match `repo`. Null allowed labels means unrestricted; [] means no labels
+  or path strings. Duplicates have set semantics. Base commit is pinned metadata,
+  not a resource label. Undeclared real-world resource use cannot be observed.
+- Under any contract, ordinary PATCH cannot change objective, resource labels,
+  repository/worktree paths or base commit. Explicit operator contract revision
+  updates those fields atomically. Its allowed-label list also replaces the task's
+  declared labels when non-null; null preserves its declared labels. Omitting paths
+  in a full replacement clears them. Child objectives and spawn reasons are bounded
+  declarations, **not semantically verified** against natural-language parent goals.
+- `runtime_seconds` is an elapsed UTC wall-clock **authorization window**, beginning
+  at the first contract revision's persisted `authorization_started_at`. Amendments
+  preserve that origin (including when the initial limit was null), restart does
+  not refill it, and expiry is elapsed >= limit. Each ancestor's window applies.
+  Amendments can extend/remove their own limit explicitly, but cannot bypass an
+  expired ancestor. Creation, ordinary PATCH and transitions are denied after
+  expiry; valid failed/cancelled transitions remain available. No CPU accounting,
+  timers, process kills or automatic state transitions exist. Host clock accuracy
+  is assumed; this is not a monotonic process clock.
+- Null numeric limits mean unlimited; zero is enforced; negative values, boolean
+  integers, unknown fields and oversized collections are rejected. Counts/depth/
+  retry budget max 1,000,000; runtime max 315,360,000 seconds; lists max 100 items.
+- `prohibited_operations` defaults to [], bounded to 100 nonempty labels of at most
+  200 characters. Exact case-sensitive enforced identifiers: `task.create` for
+  child creation, `task.patch` for ordinary PATCH, `task.transition` for all
+  transitions, and `task.transition.<state>` for each defined lifecycle state.
+  The task and all contracted ancestors apply (ancestors only for creation).
+  Valid failed/cancelled exits remain available even if explicitly prohibited.
+  Unknown labels are advisory; no glob, shell, tool or external runtime enforcement
+  is claimed. Operator contract amendments and other endpoints are not these operations.
+- `expansion_requires_authorization` is a strict boolean defaulting true. Even false
+  grants no automatic expansion: all amendments still require an explicit operator.
+  `stop_when_satisfied` is a strict boolean defaulting true, persisted only in B.
+  Older stored specifications missing these fields retain effective [], true, true
+  defaults without rewriting history; operation checks use explicit `.get` defaults.
+- `retry_budget`, `stop_when_satisfied` and `required_deliverables` are persisted contract declarations
+  **only in B**. Stable failure identity, remediation accounting and deliverable
+  completion checks depend on checkpoint C. B does not block completion for missing
+  deliverables and cannot observe external retries. Approvals remain a separate
+  authority; B does not make approval consumption an execution/policy gate.
+
+### Durable denial and lineage
+
+Policy denial is a narrow internal exception handled by a savepoint rollback,
+followed by a sanitized `governance.denied` event (reason code and governing revision IDs, authenticated
+actor, project/task and timestamp). Authorization and relationship checks precede
+policy checks. Other exceptions still roll back normally. Idempotent POST denial
+responses are cached just like successes; replay emits no new event. PATCH keeps
+its existing non-idempotent transport semantics, so a repeated denied PATCH emits
+another denial. No rejected objective/path/spawn-reason payload is copied to audit.
+
+All new task-associated events persist `details.governing_contract_ids` at write
+time, nearest contracted task first followed by every contracted ancestor. Denials
+use the restored authoritative ancestry after savepoint rollback within the same
+serialized writer transaction. Amendments identify the new revision in both this
+list and `contract_id`/`revision`. Later amendments do not reinterpret prior events.
+An empty list means no applicable contract; absent fields on preexisting events
+mean unknown historical attribution. No inferred backfill or JSON migration occurs.
+
+Delegations persist original parent, direct-parent revision (nullable), all governing
+revision IDs, authenticated `authorized_by`, spawn reason, and timestamp. Migration
+backfills surviving legacy links with actor `migration:unknown`; it cannot reconstruct
+removed pre-0004 links or their historical authorization, and does not pretend to.
+Lifetime budgets include this baseline plus all post-0004 attachments. Task views
+expose `delegation_history`; `delegation_depth` is absolute even when subtree display
+`depth` is normalized. Current ancestry and historical provenance are distinct.
+
 ## Relationships and trust
 Projects own tasks, agent sessions, panes, events, approvals and incidents.
 Tasks have optional same-project parents and owners (agent sessions). Panes have

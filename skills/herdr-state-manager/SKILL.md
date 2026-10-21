@@ -64,6 +64,34 @@ each task explicitly based on actual progress. Read the
 [decomposition examples](references/workflows.md#larger-tasks-and-agent-owned-subtasks)
 when delegating or attaching existing work.
 
+## Task contracts and governed delegation
+
+Before delegating beneath a task, read `GET /tasks/UUID/contract` for that task and
+its ancestors. The response contains `current` (null for no local contract) and
+immutable `history`. An uncontracted child may still be governed by an ancestor.
+The helper supports this read; it deliberately does not expose operator-only
+contract writes. Contract registration/amendment uses an operator's explicit
+`POST /tasks/UUID/contract`, with expected task and contract versions, full contract
+and reason. Ask the operator to review that action; never borrow their credential.
+
+Create children through the existing `/tasks` endpoint with `parent_id`, a concrete
+`spawn_reason`, and declared `resource_labels` where relevant. HSM checks cumulative
+direct-child and ancestor-relative depth budgets atomically. Paths/labels are exact
+opaque strings, not glob patterns or filesystem permissions. Child completion or
+cancellation does not replenish delegation allowance. Inspect `delegation_history`
+for original authorization and governing contract revision IDs.
+
+On a governance denial, inspect current contract/history and report the denied
+operation. Do not evade it by detaching, reparenting, changing keys or omitting
+known resource declarations. Governed reparenting is currently unsupported. Changes
+to governed objective/path/resource metadata require an explicit operator contract
+revision. HSM cannot detect arbitrary external tool use or interpret objective text.
+Its authorization window is elapsed host UTC time, not process execution accounting.
+
+Checkpoint B stores retry/deliverable requirements but does not yet enforce those
+requirements; do not claim deliverable readiness or permitted remediation from B
+alone. Follow subsequent checkpoint documentation once those APIs are implemented.
+
 ## Lifecycle and retries
 
 Use dedicated `/tasks/UUID/transition` requests; task PATCH cannot set state.

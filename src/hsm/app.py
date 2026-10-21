@@ -97,11 +97,14 @@ def create_app(config=None):
 
     def run(operation, write=False):
         with transaction(engine, write) as db:
-            result = operation(Service(db, g.principal))
+            service = Service(db, g.principal)
+            result = service.guarded(lambda: operation(service)) if write else operation(service)
             if isinstance(result, tuple):
                 data, status = result
             else:
                 data, status = result, 200
+        if status == 409 and isinstance(data, dict) and 'error' in data:
+            return jsonify(data), status
         try:
             validated = Envelope.model_validate(data).model_dump(exclude_none=True)
         except ValidationError:
@@ -153,7 +156,7 @@ def create_app(config=None):
     def ready():
         with transaction(engine) as db:
             revision = db.execute(text('SELECT version_num FROM alembic_version')).scalar()
-            if revision != '0003':
+            if revision != '0004':
                 raise Problem(503, 'schema_not_ready', 'Schema migration required')
         return jsonify(data={'status': 'ready', 'schema_revision': revision})
 
@@ -193,6 +196,21 @@ def create_app(config=None):
             return run(lambda s: {'data': s.task_view(s.get(Task, ident))})
         data = body(TaskPatch)
         return run(lambda s: {'data': s.patch_task(ident, data)}, True)
+
+    @app.route('/api/v1/tasks/<uuid:ident>/contract', methods=['GET', 'POST'])
+    def task_contract(ident):
+        from .schemas import ContractWrite
+        from .governance import history, write_contract
+        ident = str(ident)
+        if request.method == 'GET':
+            return run(lambda s: {'data': history(s, ident)})
+        data = body(ContractWrite)
+        def revise(s):
+            item = s.get(Task, ident, 'tasks:write')
+            s.permit(item.project_id, 'tasks:write', operator=True)
+            return s.replay(f'POST /tasks/{ident}/contract', request.headers.get('Idempotency-Key'), data,
+                            lambda: ({'data': write_contract(s, ident, data)}, 201))
+        return run(revise, True)
 
     @app.get('/api/v1/tasks/tree')
     @app.get('/api/v1/tasks/<uuid:ident>/tree')
