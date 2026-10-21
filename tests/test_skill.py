@@ -47,6 +47,33 @@ def test_skill_helper_registration_readback_retry_and_scope(http_api, tmp_path):
     assert 'a' * 32 not in first.stdout + first.stderr + denied.stdout + denied.stderr
 
 
+def test_skill_durable_endpoints_and_admin_isolation(http_api):
+    def write(path, data, key):
+        result = invoke(http_api, 'POST', path, '--data-file', '-', '--idempotency-key', key, body=data)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)['data']
+    task = write('/tasks', {'project_id': 'alpha', 'task_key': 'durable-skill', 'title': 'Output', 'objective': 'Record'}, 'task')
+    item = write('/tasks/' + task['id'] + '/deliverables', {'expected_version': 1, 'key': 'result',
+        'title': 'Result', 'reference': 'opaque:file', 'artifact_identity': 'sha256:one'}, 'artifact')
+    write('/deliverables/' + item['id'] + '/evidence', {'expected_version': 1, 'revision_id': item['revisions'][0]['id'],
+        'artifact_identity': 'sha256:one', 'reference': 'opaque:log', 'outcome': 'passed'}, 'evidence')
+    checkpoint = write('/tasks/' + task['id'] + '/checkpoints', {'expected_version': 1,
+        'revision_ids': [item['revisions'][0]['id']]}, 'checkpoint')
+    exc = write('/tasks/' + task['id'] + '/exceptions', {'expected_version': 1,
+        'failure_kind': 'execution', 'description': 'failed attempt'}, 'exception')
+    write('/exceptions/' + exc['id'] + '/inspect', {'expected_version': 1}, 'inspect')
+    write('/exceptions/' + exc['id'] + '/resolve', {'expected_version': 2, 'note': 'recorded resolution'}, 'resolve')
+    for path in ['/deliverables/' + item['id'], '/deliverable-revisions/' + item['revisions'][0]['id'],
+                 '/checkpoints/' + checkpoint['id'], '/exceptions/' + exc['id'], '/validation-evidence', '/remediations']:
+        result = invoke(http_api, 'GET', path)
+        assert result.returncode == 0, result.stderr
+    for suffix in ['contract', 'pause', 'resume']:
+        result = invoke(http_api, 'POST', '/tasks/' + task['id'] + '/' + suffix, '--data-file', '-', body={})
+        assert result.returncode == 2 and 'Unsupported agent endpoint' in result.stderr
+    missing = invoke(http_api, 'POST', '/exceptions/' + exc['id'] + '/inspect', '--data-file', '-', body={})
+    assert missing.returncode == 2 and 'requires --idempotency-key' in missing.stderr
+
+
 def test_skill_helper_rejects_operator_routes_missing_keys_and_remote_http():
     denied = invoke('http://127.0.0.1:1', 'POST', '/approvals/00000000-0000-0000-0000-000000000001/resolve', '--data-file', '-', body={})
     assert denied.returncode == 2 and 'Unsupported agent endpoint' in denied.stderr

@@ -75,6 +75,7 @@ class ContractSpec(Input):
     max_descendant_depth: Annotated[int, Field(ge=0, le=1000000)] | None = None
     runtime_seconds: Annotated[int, Field(ge=0, le=315360000)] | None = None
     retry_budget: Annotated[int, Field(ge=0, le=1000000)] | None = None
+    max_retries_per_failure: Annotated[int, Field(ge=0, le=1000000)] | None = None
     required_deliverables: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(default_factory=list, max_length=100)
 
 
@@ -83,6 +84,59 @@ class ContractWrite(Input):
     expected_contract_version: Annotated[int, Field(ge=0)]
     reason: Text
     contract: ContractSpec
+
+
+class Versioned(Input):
+    expected_version: Annotated[int, Field(ge=1)]
+
+
+class ArtifactData(Input):
+    reference: Text
+    artifact_identity: Annotated[str, Field(min_length=1, max_length=512)]
+
+
+class DeliverableCreate(ArtifactData, Versioned):
+    key: Annotated[str, Field(min_length=1, max_length=200)]
+    title: Text
+
+
+class DeliverableRevise(ArtifactData, Versioned):
+    pass
+
+
+class EvidenceCreate(ArtifactData, Versioned):
+    revision_id: Annotated[str, Field(min_length=36, max_length=36)]
+    outcome: Literal['passed', 'failed']
+
+
+class Supersede(Versioned):
+    superseded_by: Annotated[str, Field(min_length=36, max_length=36)]
+
+
+class CheckpointCreate(Versioned):
+    revision_ids: list[Annotated[str, Field(min_length=36, max_length=36)]] = Field(max_length=100)
+    blockers: list[Text] = Field(default_factory=list, max_length=100)
+    next_authorized_action: Literal['review', 'complete', 'record_evidence'] | None = None
+
+
+class ExceptionCreate(Versioned):
+    failure_kind: Literal['validation', 'execution', 'dependency', 'scope']
+    description: Text
+    evidence_reference: Text | None = None
+    proposed_action: Text | None = None
+    scope_impact: Text | None = None
+
+
+class ExceptionResolve(Versioned):
+    note: Text
+
+
+class RemediationRequest(Versioned):
+    approval_id: Annotated[str, Field(min_length=36, max_length=36)]
+
+
+class RemediationAuthorize(Versioned):
+    expected_approval_version: Annotated[int, Field(ge=1)]
 
 
 class SessionCreate(Input):

@@ -88,9 +88,64 @@ to governed objective/path/resource metadata require an explicit operator contra
 revision. HSM cannot detect arbitrary external tool use or interpret objective text.
 Its authorization window is elapsed host UTC time, not process execution accounting.
 
-Checkpoint B stores retry/deliverable requirements but does not yet enforce those
-requirements; do not claim deliverable readiness or permitted remediation from B
-alone. Follow subsequent checkpoint documentation once those APIs are implemented.
+## Durable deliverables, checkpoints and exceptions (checkpoint C)
+
+All new writes below require `tasks:write`, current project grants,
+`--idempotency-key` and the documented `expected_version`. Replay requires the same
+payload/key; read back independently. The helper exposes these agent routes, never
+operator contract amendments or approval resolution.
+
+- `POST /tasks/UUID/deliverables`: task expected_version, key (matching an explicit
+  required_deliverables entry), title, reference and artifact_identity. References
+  are metadata only; prefer a content hash or immutable revision as identity.
+- `POST /deliverables/UUID/revisions`: deliverable expected_version, reference,
+  artifact_identity. Every revision starts unvalidated, even if the identity repeats.
+- `POST /deliverables/UUID/evidence`: deliverable expected_version, exact revision_id,
+  artifact_identity, outcome (`passed`/`failed`), reference to validation evidence.
+  Old evidence cannot validate a new revision. No files or commands are opened.
+- `POST /deliverables/UUID/supersede`: expected_version and superseded_by UUID from
+  the same task. Superseded keys no longer satisfy requirements; no implicit alias.
+- `POST /tasks/UUID/checkpoints`: task expected_version, revision_ids (only known-good
+  same-task records), optional blockers and next_authorized_action (`review`,
+  `complete`, `record_evidence`, or null). All non-null actions are validated, never
+  executed: review/complete require current lifecycle/policy eligibility; record_evidence
+  needs an existing same-task revision and evidence grants, even on terminal tasks.
+- Recover with `GET /deliverables`, `/deliverable-revisions`, `/validation-evidence`,
+  `/checkpoints`, `/exceptions`, `/remediations`, adding `--query task_id=UUID` and
+  bounded pagination. Each supports `/UUID` detail. Artifacts survive terminal tasks.
+  Checkpoint GET is read-only restoration; it never resumes or authorizes new work.
+- `POST /tasks/UUID/exceptions`: task expected_version, failure_kind (`execution`,
+  `validation`, `dependency`, `scope`) and description. Task/failure kind is canonical;
+  a new key or reworded description cannot create a new retry allowance.
+  Optional evidence_reference, proposed_action and scope_impact are nullable strict
+  strings of 1..4096 characters, persisted in reads and creation audit. They never
+  execute, grant authority or override scope; do not put secrets in these fields.
+- `POST /exceptions/UUID/inspect` records inspection using incident expected_version.
+  `POST /exceptions/UUID/resolve` also needs note; resolution grants no authority.
+- For an in-scope retry, copy the exact `remediation_grant` from exception detail
+  into an ordinary `/approvals` request plus project_id and expiry. Wait for the
+  operator's explicit approval. Associate its approval_id with
+  `POST /exceptions/UUID/remediations` and incident expected_version, then use
+  `POST /remediations/UUID/authorize` with remediation expected_version and
+  expected_approval_version. These require approvals:consume too, original requester
+  identity, current contract revision binding, runtime/prohibitions and retry budgets.
+  Authorization consumes the grant and appends retry use atomically, but does not
+  execute anything or transition a task. Never consume remediation through the generic
+  approval route. Rejected equivalent work stays rejected with new grant/key IDs.
+  `retry_budget` is the aggregate lifetime authorization cap across recorded ancestry;
+  `max_retries_per_failure` separately caps each canonical task/failure/action identity
+  across all applicable contracts. Both are nullable strict integers 0..1000000;
+  missing legacy per-failure values mean unlimited, zero forbids. New approvals,
+  amendments, exception closure and task termination never refill usage. Earlier use
+  counts when an ancestor first adds a contract; both checks/consumption are atomic.
+
+Required deliverables gate completion using the active local contract's exact keys.
+A nonempty fully validated required set with stop_when_satisfied stops new mediated
+work under that task/ancestors; it does not automatically complete anything. Final
+review/completion (subject to existing policy), safe failure/cancellation, evidence
+and exception recording remain available. Empty required sets do not stop legacy
+work. Scope expansion always needs an explicit operator amendment or separately
+approved task; neither exception resolution nor approval grants an implicit waiver.
 
 ## Lifecycle and retries
 

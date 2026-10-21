@@ -1,5 +1,99 @@
 # HSM v1 design contract
 
+## Checkpoint C: durable evidence and controlled remediation
+
+Revision 0005 adds Deliverable, DeliverableRevision, ValidationEvidence, Checkpoint,
+CheckpointRevision and Remediation, plus nullable task/failure/description/resolution
+metadata (including evidence_reference, proposed_action, scope_impact) and version=1
+on existing Incident. Existing rows and migrations 0001–0004
+remain untouched. Foreign keys bind project/task/artifact/evidence/approval records;
+service validation additionally enforces same-task relationships. Public history is
+immutable, not protected from trusted local DB administrators.
+
+Artifacts are declared references and exact identity strings, never opened, hashed
+from disk or executed by HSM. Every revision is independent, including identical
+reference/identity repetitions; evidence binds one exact revision and identity.
+Latest evidence outcome defines that revision's present validation state. Old evidence
+and known-good checkpoint associations remain immutable. Task/session termination
+cannot remove records. Metadata/evidence and checkpoint creation after failure is
+allowed without resuming terminal work. Supersession is explicit, same-task, acyclic,
+once-only, and excludes the superseded key from current readiness. It never aliases
+one contract requirement to another key.
+
+Required-deliverable completion uses the active **local task** contract, not a union
+of ancestor requirements: parents retain their own obligations and no completion
+cascades. Exact required keys must have current non-superseded deliverables whose
+latest revision has latest passing evidence. With a nonempty required set,
+stop_when_satisfied=true blocks new mediated work below that contract: child create,
+ordinary PATCH, non-final transitions, approval consumption and remediation. Empty
+sets cannot vacuously stop legacy work. Final review/completion are exempt from this
+stop gate only (existing transition/prohibition/window rules remain); failure and
+cancellation retain their safe-exit exemption. Evidence/exception/checkpoint recording
+is bookkeeping, not new execution; no stop/window/prohibition blocks its recording.
+
+Checkpoint creation is immutable and version-checks the task. Every supplied revision
+must be same-task and currently known-good. It captures the exact validation evidence
+record, current contract IDs (nearest first), task version, supplied blockers and
+server-derived completed required keys represented by the supplied *current* revisions.
+Historical revisions may be included without asserting they satisfy today's contract.
+Next action is a constrained declaration: review/complete are checked against actual
+policy/lifecycle; record_evidence checks for an existing same-task revision and
+applicable record write/read grants, including on terminal tasks. Without an actual
+revision target it is rejected. Null means unknown. The declaration is not a grant
+for a particular future evidence payload (exact version/identity checks still apply). It
+never substitutes for a fresh check when acting. Restoration is GET only, never a
+resume, execution, fresh grant, or rollback of task state.
+
+Task exceptions reuse Incident. Reconciliation types are unchanged. Canonical failure
+identity is task UUID plus one of execution/validation/dependency/scope; prose and
+client IDs do not create distinct failures. There is deliberately one exception per
+task/kind for the task's lifetime. `/inspect` records an explicit audited inspection;
+ordinary GET stays read-only. `/resolve` records note/time/version but grants nothing.
+Optional nullable evidence_reference, proposed_action and scope_impact are strict
+1..4096-character strings persisted on the Incident and creation audit, returned in
+reads, never fetched/executed or treated as authority. Existing incidents default null.
+Scope exceptions cannot authorize retries; out-of-scope work requires an operator
+contract amendment or an independently authorized task, never an exception flag.
+
+Only `remediation.retry` is supported; it authorizes an in-scope retry of the recorded
+failure, not an arbitrary HSM mutation or command. An existing Approval must match
+task, operation, target, retry action and a fingerprint of **all** current contract
+revision IDs. The requester associates it; the requester alone consumes it through
+atomic remediation authorization. Current tasks:write/read/approvals:consume grants,
+project, current versions, terminal state, unresolved exception, runtime, declared
+resource scope, operation prohibitions, satisfaction and ancestor budgets all apply.
+Any consumption or authorization failure rolls back both domain records and events;
+only sanitized policy denials and replay receipts survive savepoint rollback. Native
+observations cannot authorize remediation. Generic approval consumption checks
+policy too and refuses remediation grants; no route accepts a scope override.
+
+The canonical rejected action is task + failure kind + fixed remediation.retry,
+independent of approval/incident/key IDs and contract amendments. Matching rejected
+Approval rows block even if never associated; linked rejection is reflected on the
+Remediation row. Authorized attempts persist their original entire task ancestry;
+active ancestor retry_budget counts lifetime successful authorizations sharing that
+ancestor (across failure kinds), not pending requests, transport replay or current
+active task count. Null is unlimited, zero forbids; closure and amendment never refill
+usage. Changing ancestry or contract revisions between request and authorization
+requires a fresh association/grant, not silent reuse. The independent nullable strict
+integer `max_retries_per_failure` (0..1000000) counts only authorized records with the
+same canonical task/failure/action identity in each applicable contract's recorded
+ancestry. Legacy missing values mean null/unlimited, zero forbids. New grant IDs and
+contract amendments cannot reset either counter. Prior use under then-uncontracted
+ancestors counts when contracts are added; tightening grandfathers old authorizations
+but denies further use at/above the cap. Distinct identities have separate per-failure
+allowances but share the aggregate retry_budget. BEGIN IMMEDIATE serializes the
+last-slot budget race and consumption. No subsequent lifecycle changes occur.
+
+Limits: declarations are trusted facts, not semantic verification of reworded intent
+or external content. Failure-kind reclassification cannot be semantically detected;
+ancestor aggregate retry budgets still apply. A permanently rejected task/kind cannot
+be reopened through this API. Conservative canonicalization intentionally merges
+multiple failures of that kind. Detail histories are complete/unpaginated, while
+collection pages are bounded. External availability, actual remediation execution,
+process runtime and enforcement against noncooperating clients remain unknown.
+CLI/TUI controls and aggregate governance recovery/metrics belong to later checkpoints.
+
 ## Checkpoint B: opt-in contract and delegation authority
 
 Revision 0004 adds immutable-by-public-API contract revisions and delegation records.

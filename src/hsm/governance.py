@@ -64,6 +64,9 @@ def consumed(s, task_id):
 def check_create(s, data):
     parent = s.db.get(Task, data.get('parent_id')) if data.get('parent_id') else None
     governing = ancestry(s, parent)
+    if parent:
+        from .durable import check_work
+        check_work(s, parent, 'task.create')
     if governing and not (data.get('spawn_reason') or '').strip():
         deny(parent, 'spawn_reason_required')
     distance = 1
@@ -106,6 +109,11 @@ def check_patch(s, item, data, transition):
             deny(item, 'governed_reparent')
     if transition and data['state'] in {'failed', 'cancelled'}:
         return
+    from .durable import check_complete, check_work
+    if transition and data['state'] == 'completed':
+        check_complete(s, item)
+    if not transition or data['state'] not in {'review', 'completed'}:
+        check_work(s, item, 'task.transition' if transition else 'task.patch')
     for _, revision in governing:
         check_operation(item, revision, 'task.transition' if transition else 'task.patch',
                         data['state'] if transition else None)

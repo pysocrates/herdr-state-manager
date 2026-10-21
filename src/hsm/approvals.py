@@ -31,12 +31,18 @@ def resolve(service, ident, data):
     item.operator = service.principal['identity']
     item.resolved_at, item.resolution_note = now(), data.get('note')
     item.version += 1
+    if item.status == 'rejected':
+        from sqlalchemy import select
+        from .models import Remediation
+        for record in service.db.scalars(select(Remediation).where(Remediation.approval_id == item.id)):
+            record.status = 'rejected'
+            record.version += 1
     service.event(item.project_id, 'approval.resolved', item.task_id, 'pending', item.status,
                   {'approval_id': item.id, 'version': item.version})
     return service.resource_view(item)
 
 
-def consume(service, ident, data):
+def consume(service, ident, data, remediation_id=None):
     item = service.get(Approval, ident, 'approvals:consume')
     if item.requester != service.principal['identity']:
         raise Problem(403, 'wrong_consumer', 'Only the original requesting principal may consume')
@@ -47,6 +53,16 @@ def consume(service, ident, data):
     task = service.get(Task, item.task_id)
     if task.state in {'completed', 'failed', 'cancelled'}:
         raise Problem(409, 'terminal_task', 'Cannot consume authorization for terminal work')
+    from .durable import check_work
+    from .governance import ancestry, check_operation
+    check_work(service, task, 'approval.consume')
+    for _, revision in ancestry(service, task):
+        check_operation(task, revision, item.operation)
+    if item.operation.startswith('remediation.'):
+        from .models import Remediation
+        record = service.db.get(Remediation, remediation_id) if remediation_id else None
+        if not record or record.approval_id != item.id or record.status != 'requested':
+            raise Problem(409, 'remediation_required', 'Use atomic remediation authorization endpoint')
     item.consumed_at, item.consumed_by = now(), service.principal['identity']
     item.version += 1
     service.event(item.project_id, 'approval.consumed', item.task_id,

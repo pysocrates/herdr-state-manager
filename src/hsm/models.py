@@ -73,6 +73,84 @@ class Delegation(Base):
     created_at: Mapped[str] = mapped_column(default=now)
 
 
+class Deliverable(Base):
+    __tablename__ = 'deliverables'
+    __table_args__ = (UniqueConstraint('task_id', 'key'),)
+    id: Mapped[str] = mapped_column(primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey('tasks.id'), index=True)
+    key: Mapped[str]
+    title: Mapped[str]
+    version: Mapped[int] = mapped_column(default=1)
+    superseded_by: Mapped[str | None] = mapped_column(ForeignKey('deliverables.id'))
+    created_at: Mapped[str] = mapped_column(default=now)
+
+
+class DeliverableRevision(Base):
+    __tablename__ = 'deliverable_revisions'
+    __table_args__ = (UniqueConstraint('deliverable_id', 'revision'),)
+    id: Mapped[str] = mapped_column(primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey('tasks.id'), index=True)
+    deliverable_id: Mapped[str] = mapped_column(ForeignKey('deliverables.id'), index=True)
+    revision: Mapped[int]
+    reference: Mapped[str]
+    artifact_identity: Mapped[str]
+    actor: Mapped[str]
+    created_at: Mapped[str] = mapped_column(default=now)
+
+
+class ValidationEvidence(Base):
+    __tablename__ = 'validation_evidence'
+    id: Mapped[str] = mapped_column(primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey('tasks.id'), index=True)
+    revision_id: Mapped[str] = mapped_column(ForeignKey('deliverable_revisions.id'), index=True)
+    artifact_identity: Mapped[str]
+    outcome: Mapped[str]
+    reference: Mapped[str]
+    actor: Mapped[str]
+    created_at: Mapped[str] = mapped_column(default=now)
+
+
+class Checkpoint(Base):
+    __tablename__ = 'checkpoints'
+    id: Mapped[str] = mapped_column(primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey('tasks.id'), index=True)
+    task_version: Mapped[int]
+    contract_ids: Mapped[list] = mapped_column(JSON)
+    completed_requirements: Mapped[list] = mapped_column(JSON)
+    blockers: Mapped[list] = mapped_column(JSON)
+    next_authorized_action: Mapped[str | None]
+    actor: Mapped[str]
+    created_at: Mapped[str] = mapped_column(default=now)
+
+
+class CheckpointRevision(Base):
+    __tablename__ = 'checkpoint_revisions'
+    checkpoint_id: Mapped[str] = mapped_column(ForeignKey('checkpoints.id'), primary_key=True)
+    revision_id: Mapped[str] = mapped_column(ForeignKey('deliverable_revisions.id'), primary_key=True)
+    evidence_id: Mapped[str] = mapped_column(ForeignKey('validation_evidence.id'))
+
+
+class Remediation(Base):
+    __tablename__ = 'remediations'
+    id: Mapped[str] = mapped_column(primary_key=True, default=uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), index=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey('tasks.id'), index=True)
+    incident_id: Mapped[str] = mapped_column(ForeignKey('incidents.id'), index=True)
+    approval_id: Mapped[str] = mapped_column(ForeignKey('approvals.id'), unique=True)
+    canonical_identity: Mapped[str] = mapped_column(index=True)
+    contract_ids: Mapped[list] = mapped_column(JSON)
+    budget_task_ids: Mapped[list] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(default='requested')
+    version: Mapped[int] = mapped_column(default=1)
+    actor: Mapped[str]
+    created_at: Mapped[str] = mapped_column(default=now)
+    authorized_at: Mapped[str | None]
+
+
 class AgentSession(Base):
     __tablename__ = 'agent_sessions'
     id: Mapped[str] = mapped_column(primary_key=True, default=uid)
@@ -138,6 +216,14 @@ class Incident(Base):
     last_seen_at: Mapped[str] = mapped_column(default=now)
     status: Mapped[str] = mapped_column(default='open')
     resolved_at: Mapped[str | None]
+    task_id: Mapped[str | None] = mapped_column(ForeignKey('tasks.id'), index=True)
+    failure_kind: Mapped[str | None]
+    description: Mapped[str | None]
+    evidence_reference: Mapped[str | None]
+    proposed_action: Mapped[str | None]
+    scope_impact: Mapped[str | None]
+    resolution_note: Mapped[str | None]
+    version: Mapped[int] = mapped_column(default=1, server_default='1')
 
 
 class AdapterHealth(Base):

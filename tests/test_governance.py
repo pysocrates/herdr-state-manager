@@ -166,7 +166,18 @@ def test_migration_populated_0003(tmp_path):
         db.execute(text("INSERT INTO projects (id, name, configuration, enabled, created_at) VALUES ('alpha', 'Alpha', '{}', 1, '2026-01-01T00:00:00Z')"))
         for ident, ancestor in [(parent, None), (leaf, parent)]:
             db.execute(text("INSERT INTO tasks (id, project_id, task_key, title, objective, state, parent_id, created_at, updated_at, version) VALUES (:id, 'alpha', :id, 'old', 'old', 'queued', :parent, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 1)"), {'id': ident, 'parent': ancestor})
+    from sqlalchemy import inspect
+    inspector = inspect(engine)
+    columns = {table: [c['name'] for c in inspector.get_columns(table)]
+               for table in inspector.get_table_names() if table != 'alembic_version'}
+    def snapshot():
+        with engine.connect() as conn:
+            return {table: conn.execute(text('SELECT ' + ', '.join('"' + c + '"' for c in cols)
+                + ' FROM "' + table + '"')).all() for table, cols in columns.items()}
+    before = snapshot()
     migrate(url)
+    migrate(url)
+    assert snapshot() == before
     with transaction(engine) as db:
         assert db.get(Task, leaf).resource_labels == []
         assert db.get(Task, leaf).parent_id == parent
@@ -176,6 +187,8 @@ def test_migration_populated_0003(tmp_path):
         assert record.parent_contract_id is None
         assert db.scalar(select(func.count()).select_from(TaskContract)) == 0
         assert db.execute(text('PRAGMA foreign_key_check')).all() == []
+        assert db.execute(text('PRAGMA integrity_check')).scalar() == 'ok'
+        assert db.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0005'
     engine.dispose()
 
 
@@ -274,7 +287,7 @@ def test_amendment_races_delegation(env, make_task):
 
 
 def test_readiness(env):
-    assert env[2]('GET', '/health/ready').json['data']['schema_revision'] == '0004'
+    assert env[2]('GET', '/health/ready').json['data']['schema_revision'] == '0005'
 
 
 @pytest.mark.parametrize('spec', [

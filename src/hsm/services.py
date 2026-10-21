@@ -210,7 +210,7 @@ class Service:
             else:
                 self.get(Task, filters['parent_id'])
                 query = query.where(Task.parent_id == filters['parent_id'])
-        for name in ('state', 'task_id', 'status'):
+        for name in ('state', 'task_id', 'status', 'incident_type'):
             if filters.get(name):
                 query = query.where(getattr(model, name) == filters[name])
         if filters.get('profile'):
@@ -264,6 +264,14 @@ class Service:
                 'selection': 'subtree' if ident else 'all', 'truncation': {'nodes': False}}
 
     def resource_view(self, item):
+        from .models import Deliverable, Checkpoint
+        from .durable import deliverable_view, checkpoint_view, exception_view
+        if isinstance(item, Deliverable):
+            return deliverable_view(self, item)
+        if isinstance(item, Checkpoint):
+            return checkpoint_view(self, item)
+        if isinstance(item, Incident) and item.incident_type == 'task_exception':
+            return exception_view(self, item)
         if isinstance(item, Approval):
             from .approvals import view
             result = view(item)

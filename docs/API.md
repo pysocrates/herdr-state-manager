@@ -1,6 +1,121 @@
 # API v1
 
+## Checkpoint C: durable work (schema revision 0005)
+
+All routes have the `/api/v1` prefix. New POST routes return 201 with `{data:...}`,
+require project `tasks:write`, `Idempotency-Key`, and strict positive integer
+`expected_version`. Read grants are required to resolve referenced records. Versions
+refer to the resource named in the path (Task for task-scoped creation). Appending
+artifact evidence/revisions or superseding increments Deliverable.version; creating
+independent records does not change Task.version. Incident inspection/resolution/
+remediation association increments Incident.version. Authorization increments both
+Remediation.version and Approval.version. GET does not mutate or resume anything.
+
+| POST route | Required body in addition to expected_version |
+|---|---|
+| /tasks/{id}/deliverables | key (1..200), title, reference, artifact_identity (1..512) |
+| /deliverables/{id}/revisions | reference, artifact_identity |
+| /deliverables/{id}/evidence | revision_id, exact artifact_identity, outcome passed/failed, reference |
+| /deliverables/{id}/supersede | superseded_by (same-task deliverable UUID) |
+| /tasks/{id}/checkpoints | revision_ids (0..100 distinct UUIDs); optional blockers (0..100 strings), next_authorized_action |
+| /tasks/{id}/exceptions | failure_kind execution/validation/dependency/scope, description; optional nullable evidence_reference, proposed_action, scope_impact |
+| /exceptions/{id}/inspect | no additional fields |
+| /exceptions/{id}/resolve | note |
+| /exceptions/{id}/remediations | approval_id |
+| /remediations/{id}/authorize | expected_approval_version |
+
+Text fields are 1..4096 characters unless noted. Empty/unknown fields, booleans as
+versions, oversized lists and unrecognized actions fail strict schema validation.
+There are no deletion, historical edit or restore/execute endpoints.
+
+GET collections `/deliverables`, `/deliverable-revisions`, `/validation-evidence`,
+`/checkpoints`, `/exceptions`, `/remediations` accept project, task_id, limit (1..200),
+offset. Exceptions also accept persisted status; only task-exception Incident rows
+appear here. `/incidents` continues to include reconciliation incidents and now
+accepts task_id too. Each new collection supports `/UUID` detail independently of
+active-task recovery. Deliverable detail includes immutable revisions and evidence
+and current `validated`. Checkpoints include exact revision/evidence IDs,
+contract_ids (task-to-root), completed_requirements, blockers, task_version, actor,
+time and `restoration: read_only_no_resume`. Exception detail includes remediation
+history and `remediation_grant`, the exact proposed Approval fields, not an approval.
+Detail histories are complete; collection pages bound parent rows, not nested history.
+
+Example artifact registration:
+```json
+{"expected_version":2,"key":"parser-tests","title":"Parser tests",
+ "reference":"git:repo/path@commit","artifact_identity":"sha256:declared-digest"}
+```
+Pass the returned revision UUID and **exact same identity** when recording evidence.
+A fresh revision never inherits validation, including when identity repeats. Latest
+recorded evidence determines current revision validity; failed evidence invalidates
+current readiness without deleting earlier checkpoint evidence. Artifacts/revisions/
+evidence/checkpoints and exception recording remain available after task failure.
+Required keys match only current non-superseded local task deliverables. Supersession
+is one-time, same-task and acyclic, not a requirement-key alias.
+
+Checkpoint `next_authorized_action` is null or `review`, `complete`, `record_evidence`.
+Review/complete are checked against the current lifecycle and contract; no action is
+executed. `record_evidence` requires an existing same-task deliverable revision and
+the write/read grants needed to record evidence; it remains available on terminal
+tasks because evidence is bookkeeping. No target yields `evidence_target_missing`.
+This declaration does not bind a future evidence payload or waive its version/identity
+checks. Completed requirements are server-derived from the supplied current
+known-good references intersected with the active local contract. Historical
+known-good revisions can be captured too, but do not assert current completion.
+Later evidence/contracts cannot rewrite an existing checkpoint or make it new authority.
+
+For remediation, request an ordinary Approval using exception.remediation_grant plus
+project_id and expires_at. Its fields bind operation=`remediation.retry`, target and
+task_id=task UUID, action=`retry:<failure_kind>`, artifact=SHA256 of canonical JSON
+current contract IDs. Only an explicit operator decision creates authority. The
+original requester associates the approval, then authorizes using both current
+versions. These routes additionally require `approvals:consume`; current grants are
+checked before idempotent replay. Approved, unexpired, unused exact-action grants
+are consumed **atomically** with the retry ledger authorization. Any later failure
+rolls back consumption. Generic `/approvals/{id}/consume` refuses remediation grants.
+It also enforces applicable `approval.consume`, exact operation prohibitions,
+authorization windows and stop-on-satisfaction; it never mutates task scope.
+
+Canonical exception identity is task UUID + fixed failure_kind, not description,
+incident UUID, approval UUID or idempotency key. Canonical retry identity additionally
+includes fixed operation remediation.retry. Rejected matching approvals (including
+unassociated rejected grants) permanently block equivalent retries with new IDs.
+One exception per task/kind is deliberately conservative; resolution does not reset
+rejections/budgets. `retry_budget` is the aggregate lifetime authorization cap over
+each contracted task's recorded ancestry, shared across failure kinds and descendants.
+`max_retries_per_failure` independently caps the lifetime authorized count for the
+stable task/failure/action identity at every applicable local/ancestor contract.
+Both are strict integers 0..1000000 or null (unlimited); zero forbids retries.
+Legacy JSON missing the new field defaults effectively to null without rewriting
+history. Both checks and approval consumption share one serialized transaction.
+New approval IDs, contract revisions, resolution and terminal descendants do not
+refill usage. Original entire ancestry counts earlier usage even when a contract
+is first added later; tightening can grandfather existing use but permits no new
+authorization until below both current caps.
+Scope exceptions cannot authorize retries: seek an explicit amendment or separately
+authorized task. Terminal tasks cannot consume any grant or authorize remediation.
+
+Exception `evidence_reference`, `proposed_action`, and `scope_impact` are optional
+nullable strict strings (1..4096 characters when non-null). They are persisted on
+Incident, returned in exception reads, and copied to the `exception.recorded` audit
+event. They are untrusted descriptive metadata, never fetched, executed or interpreted
+as authorization/scope overrides. Do not include secrets. Missing values remain null
+on legacy incidents. Project authorization precedes creation/read/audit disclosure.
+
+Completion requires the active local contract's exact required_deliverables set.
+Nonempty satisfied sets with stop_when_satisfied=true gate child creation, ordinary
+PATCH, new-work transitions, approval consumption and remediation throughout ancestry.
+Empty sets never trigger stopping. Review/completion remain permitted by this stop
+gate, subject to other existing constraints; valid failure/cancellation, evidence,
+checkpoint and exception bookkeeping remain available. There is no lifecycle cascade.
+New denial codes include required_deliverables_missing, stop_when_satisfied,
+retry_budget, max_retries_per_failure, remediation_rejected and contract_changed. Policy denials preserve
+sanitized audit/replay only; ordinary validation and version conflicts roll back.
+
 ## Checkpoint B: contracts (schema revision 0004)
+
+The following describes B's original boundary; C above supersedes its deferred
+retry/deliverable/stop gates and extends approval-consumption enforcement.
 
 `GET /tasks/{uuid}/contract` requires project `read` and returns
 `{data:{current: CONTRACT_OR_NULL, history:[CONTRACT,...]}}` in revision order.

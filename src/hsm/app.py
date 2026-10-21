@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from werkzeug.exceptions import HTTPException
 from .config import Config
 from .database import engine_for, transaction
-from .models import Task, Pane, AgentSession, Event, Approval, Incident
+from .models import Task, Pane, AgentSession, Event, Approval, Incident, Deliverable, DeliverableRevision, ValidationEvidence, Checkpoint, Remediation
 from .schemas import ProjectCreate, TaskCreate, TaskPatch, Transition, SessionCreate, PaneCreate, RuntimePatch, Empty, ApprovalCreate, ApprovalResolve, ApprovalConsume
 from .services import Service, Problem, serialize
 from .responses import Envelope
@@ -115,7 +115,7 @@ def create_app(config=None):
         allowed = {'project', 'limit', 'offset'}
         if model is Task:
             allowed |= {'state', 'profile', 'parent_id', 'created_after', 'created_before'}
-        if model is Event:
+        if model in {Event, Deliverable, DeliverableRevision, ValidationEvidence, Checkpoint, Remediation, Incident}:
             allowed |= {'task_id'}
         if model in {Approval, Incident, ApprovalObservation}:
             allowed |= {'status'}
@@ -156,7 +156,7 @@ def create_app(config=None):
     def ready():
         with transaction(engine) as db:
             revision = db.execute(text('SELECT version_num FROM alembic_version')).scalar()
-            if revision != '0004':
+            if revision != '0005':
                 raise Problem(503, 'schema_not_ready', 'Schema migration required')
         return jsonify(data={'status': 'ready', 'schema_revision': revision})
 
@@ -314,5 +314,57 @@ def create_app(config=None):
         if project and request.args.get('project') and project != request.args['project']:
             raise Problem(422, 'query_validation', 'Conflicting project filters')
         return run(lambda s: {'data': s.snapshot(project or request.args.get('project'), recent)})
+
+    # These closures all enter the established Service transaction/replay boundary.
+    from . import durable, schemas
+
+    def durable_collection(resource, model):
+        def collection():
+            filters, limit, offset = query_options(model)
+            if model is Incident:
+                filters['incident_type'] = 'task_exception'
+            return run(lambda s: s.listing(model, filters, limit, offset))
+        def detail(ident):
+            def read(s):
+                item = s.get(model, str(ident))
+                if model is Incident and item.incident_type != 'task_exception':
+                    raise Problem(404, 'not_found', 'Task exception not found')
+                return {'data': s.resource_view(item)}
+            return run(read)
+        app.add_url_rule('/api/v1/' + resource, resource + '_list', collection)
+        app.add_url_rule('/api/v1/' + resource + '/<uuid:ident>', resource + '_get', detail)
+
+    for resource, model in [('deliverables', Deliverable), ('deliverable-revisions', DeliverableRevision),
+                            ('validation-evidence', ValidationEvidence), ('checkpoints', Checkpoint),
+                            ('exceptions', Incident), ('remediations', Remediation)]:
+        durable_collection(resource, model)
+
+    def durable_write(path, model, schema, operation, approval_permission=False):
+        def endpoint(ident):
+            ident, data = str(ident), body(schema)
+            def mutate(s):
+                item = s.get(model, ident, 'tasks:write')
+                if approval_permission:
+                    s.permit(item.project_id, 'approvals:consume')
+                return s.replay('POST ' + request.path, request.headers.get('Idempotency-Key'), data,
+                    lambda: ({'data': operation(s, ident, data)}, 201))
+            return run(mutate, True)
+        app.add_url_rule('/api/v1/' + path, path, endpoint, methods=['POST'])
+
+    for path, model, schema, operation in [
+        ('tasks/<uuid:ident>/deliverables', Task, schemas.DeliverableCreate, durable.create_deliverable),
+        ('deliverables/<uuid:ident>/revisions', Deliverable, schemas.DeliverableRevise, durable.revise_deliverable),
+        ('deliverables/<uuid:ident>/evidence', Deliverable, schemas.EvidenceCreate, durable.record_evidence),
+        ('deliverables/<uuid:ident>/supersede', Deliverable, schemas.Supersede, durable.supersede),
+        ('tasks/<uuid:ident>/checkpoints', Task, schemas.CheckpointCreate, durable.create_checkpoint),
+        ('tasks/<uuid:ident>/exceptions', Task, schemas.ExceptionCreate, durable.record_exception),
+        ('exceptions/<uuid:ident>/inspect', Incident, schemas.Versioned, durable.inspect_exception),
+        ('exceptions/<uuid:ident>/resolve', Incident, schemas.ExceptionResolve, durable.resolve_exception),
+    ]:
+        durable_write(path, model, schema, operation)
+    durable_write('exceptions/<uuid:ident>/remediations', Incident, schemas.RemediationRequest,
+                  durable.request_remediation, True)
+    durable_write('remediations/<uuid:ident>/authorize', Remediation, schemas.RemediationAuthorize,
+                  durable.authorize_remediation, True)
 
     return app

@@ -13,8 +13,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 # Agent operations only. Server remains responsible for project/action authorization.
 UUID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 ALLOWED = {
-    'GET': rf'/(?:projects|tasks(?:/tree|/{UUID}(?:/(?:events|tree|contract))?)?|agent-sessions(?:/{UUID})?|panes(?:/{UUID})?|approvals(?:/{UUID})?|events|incidents|state(?:/projects/[a-zA-Z0-9_-]{{1,80}})?|health(?:/(?:live|ready))?)',
-    'POST': rf'/(?:tasks(?:/{UUID}/transition)?|agent-sessions(?:/{UUID}/heartbeat)?|panes(?:/{UUID}/heartbeat)?|approvals(?:/{UUID}/consume)?)',
+    'GET': rf'/(?:projects|tasks(?:/tree|/{UUID}(?:/(?:events|tree|contract))?)?|agent-sessions(?:/{UUID})?|panes(?:/{UUID})?|approvals(?:/{UUID})?|(?:deliverables|deliverable-revisions|validation-evidence|checkpoints|exceptions|remediations)(?:/{UUID})?|events|incidents|state(?:/projects/[a-zA-Z0-9_-]{{1,80}})?|health(?:/(?:live|ready))?)',
+    'POST': rf'/(?:tasks(?:/{UUID}/(?:transition|deliverables|checkpoints|exceptions))?|deliverables/{UUID}/(?:revisions|evidence|supersede)|exceptions/{UUID}/(?:inspect|resolve|remediations)|remediations/{UUID}/authorize|agent-sessions(?:/{UUID}/heartbeat)?|panes(?:/{UUID}/heartbeat)?|approvals(?:/{UUID}/consume)?)',
     'PATCH': rf'/(?:tasks|agent-sessions|panes)/{UUID}',
 }
 
@@ -38,7 +38,8 @@ def main(argv=None):
         parser.error('Writes require --data-file FILE or --data-file -')
     if args.method == 'GET' and args.data_file:
         parser.error('GET does not accept a request body')
-    if args.method == 'POST' and (args.path in {'/tasks', '/approvals'} or args.path.endswith('/transition')) and not args.idempotency_key:
+    durable_write = re.fullmatch(rf'/(?:tasks/{UUID}/(?:deliverables|checkpoints|exceptions)|deliverables/{UUID}/(?:revisions|evidence|supersede)|exceptions/{UUID}/(?:inspect|resolve|remediations)|remediations/{UUID}/authorize)', args.path)
+    if args.method == 'POST' and (durable_write or args.path in {'/tasks', '/approvals'} or args.path.endswith('/transition')) and not args.idempotency_key:
         parser.error('This operation requires --idempotency-key')
     if args.idempotency_key and not re.fullmatch(r'[!-~]{1,128}', args.idempotency_key):
         parser.error('Idempotency key must be 1..128 non-space ASCII characters')
