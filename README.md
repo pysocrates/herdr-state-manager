@@ -70,7 +70,37 @@ project filter and press Enter; `r` refreshes, `q` exits. It never polls runtime
 Normal CLI commands work without a graphical desktop. JSON output uses the REST
 envelope and stable schema version for recovery snapshots.
 
-## Governance inspection and intervention (checkpoint D)
+## Task governance
+
+Tasks may opt into immutable, operator-authorized contracts. Legacy uncontracted
+workflows remain valid. Shared server-side checks govern child creation, declared
+resource labels, prohibited HSM operations, delegation depth, lifetime child/retry
+budgets and elapsed authorization windows. Contract amendments retain original
+revision history; governed reparenting is conservatively rejected.
+
+Deliverables store opaque artifact references and revision-specific validation
+metadata, not binaries. Failure does not erase completed outputs. Checkpoints retain
+known-good evidence; exceptions reuse incidents and existing approvals without
+implicitly authorizing remediation. Required outputs gate completion. HSM enforces
+these rules only on mediated operations, not arbitrary shell or filesystem activity.
+
+All-state task recovery and metrics are available through authenticated REST:
+
+```text
+GET /api/v1/tasks/UUID/recovery
+GET /api/v1/tasks/UUID/metrics
+GET /api/v1/governance/metrics?project=example
+```
+
+Existing `/state` responses retain their v1 keys and add independently versioned
+`governance` data. Recovery is read-only, contains a consistent event cursor and
+captured time, and never resumes tasks. Metrics use persisted history rather than
+recent-event widgets. Missing runtime/context telemetry and historical provenance
+remain explicitly unavailable; alerts are deterministic signals, not model-intent
+judgments. See [API details](docs/API.md) and the
+[companion workflow](skills/herdr-state-manager/SKILL.md).
+
+## Governance inspection and intervention
 
 ```bash
 hsm scope FEATURE-1 --project example --json
@@ -114,8 +144,8 @@ Governance pause blocks mediated authorization; **runtime control is unsupported
 unacknowledged**. It does not stop processes. Resume only clears the local pause;
 ancestor pause, contracts, approvals and budgets still apply. Existing bounded approval
 history, tab navigation, stale-view preservation and filter-race guards are retained.
-See [checkpoint D UI evidence](docs/CHECKPOINT_D_UI.md) for the frontend-only verified
-boundary and pending backend integration. No installation or service restart is implied.
+See [checkpoint D integration evidence](docs/CHECKPOINT_D.md) for backend and
+CLI/Textual verification. No installation or service restart is implied.
 
 ## Configuration
 
@@ -217,6 +247,8 @@ inspect direct-child/descendant state counts, owner UUID and pane IDs.
 Parent and child states remain independent. Completing children never auto-completes
 the parent; parent completion/cancellation never cascades to children. Review and
 complete the larger task explicitly. Terminal parents with active descendants produce
-recovery warnings, including intentionally linked follow-up work. Reparenting is an
-expected-version task PATCH and is audited; cross-project links and cycles are rejected.
-No database migration is needed for this refinement: parent_id already exists.
+recovery warnings, including intentionally linked follow-up work. Legacy uncontracted
+reparenting is an expected-version task PATCH and is audited; cross-project links and
+cycles are rejected. Governed or effectively paused tree moves are denied rather than
+silently transferring authority. The forest reuses `parent_id`; governance adds
+forward migrations 0004–0006 without replacing that relationship.

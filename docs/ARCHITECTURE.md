@@ -62,3 +62,50 @@ Terminal parents are retained and warned about when they have active descendants
 Counts are observational; parent lifecycle/version and worker ownership remain explicit.
 Creating a child does not mutate the parent record. Reparenting changes the child's
 version, is checked against cycles/project scope, and audits old/new parent IDs.
+Governed reparenting and paused-tree escape paths are rejected rather than transferring
+scope authority implicitly.
+
+## Governance extensions
+
+HSM remains a persistent state authority, not an execution engine. Existing shared
+services now consult `governance.py` for contract/delegation policy, `durable.py` for
+revision-bound outputs and exception/remediation bookkeeping, and `interventions.py`
+for operator pause and scope. `reporting.py` provides read-only recovery and metrics;
+these modules reuse the same authorization, transaction and task forest mechanisms.
+
+Migration 0004 adds immutable contract revisions and delegation provenance, 0005
+adds deliverables/revisions/evidence/checkpoints and extends existing incidents with
+exceptions and remediation associations, and 0006 adds local governance pause fields.
+Historical events record applicable contract IDs at write time. New fields remain
+compatible with uncontracted legacy tasks and missing optional JSON limits.
+
+Contract amendments require explicit operator authority and expected task/contract
+versions. SQLite serialized writer transactions protect budget checks and writes.
+Policy denial uses a savepoint: roll back domain mutations, then persist only a
+sanitized denial audit and idempotent receipt. Authorization failures do not leak
+project-specific denial information. Replayed requests never consume another budget
+slot. No failure or exception grants scope expansion automatically.
+
+Deliverables store immutable artifact revision references; every changed revision
+requires fresh validation. Supersession is explicit and same-task. Checkpoint evidence
+and constraints remain available after task/session failure. A recorded next action
+is not an evergreen grant: recovery rechecks eligibility and actual mutations always
+revalidate authority. Canonical failure identity and existing exact-action approvals
+protect retry accounting without introducing a second approval subsystem.
+
+Pause is independent of lifecycle and inherited through all ancestors, including
+uncontracted tasks. It preserves ownership/artifacts and gates new mediated work;
+explicit safe closure/bookkeeping exemptions are documented in the API contract.
+Neither pause nor resume controls runtime processes. Optional adapters stay
+observational; unsupported process control is reported rather than simulated.
+
+Task-specific recovery includes terminal tasks. `/state` keeps its v1 shape and
+active-with-ancestors selection, adding an independently versioned governance section.
+Governance views share a captured time and SQLite read snapshot with the event cursor.
+Metrics read full relevant persisted history, not recent-event pages. Historical
+root-at-creation is reconstructed only from recorded parent history, never today's
+mutable tree. Missing provenance, repeated-exception occurrence telemetry and context
+utilization remain unavailable. Deterministic alerts do not infer model intent.
+
+See [API](API.md) for exact schemas/semantics and [verification](VERIFICATION.md)
+for tested boundaries. No hosted infrastructure or model dependency is introduced.

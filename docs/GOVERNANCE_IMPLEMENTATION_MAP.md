@@ -1,6 +1,10 @@
 # Agent governance implementation map — checkpoint A
 
-Status: reconnaissance complete; implementation checkpoints B–F not started.
+Historical checkpoint A plan: the status and baseline observations below describe
+the pre-implementation checkout. See [checkpoint F](CHECKPOINT_F.md) for final
+acceptance, integration evidence and remaining limitations.
+
+Status at checkpoint A: reconnaissance complete; implementation checkpoints B–F not started.
 Baseline: `8174a68` (clean checkout before this document). This is an implementation
 map, not a claim that the proposed features exist. No live service, credentials,
 application repositories, or deployed database were changed during reconnaissance.

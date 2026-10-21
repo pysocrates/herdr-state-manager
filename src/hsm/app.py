@@ -379,6 +379,13 @@ def create_app(config=None):
             ident, data = str(ident), body(schema)
             def mutate(s):
                 item = s.get(model, ident, 'tasks:write')
+                # Replay must retain the operation's reference-read permission checks
+                # without rerunning version checks or successful mutations.
+                reads_references = operation in (durable.record_evidence, durable.supersede) or (
+                    operation is durable.create_checkpoint and (
+                        data['revision_ids'] or data.get('next_authorized_action') == 'record_evidence'))
+                if reads_references:
+                    s.permit(item.project_id, 'read')
                 if approval_permission:
                     s.permit(item.project_id, 'approvals:consume')
                 return s.replay('POST ' + request.path, request.headers.get('Idempotency-Key'), data,

@@ -4,3 +4,4 @@ recursive-include deploy *.service *.timer
 recursive-include scripts *.py *.sh
 recursive-include migrations *.py
 recursive-include skills *.md *.py
+recursive-include tests *.py

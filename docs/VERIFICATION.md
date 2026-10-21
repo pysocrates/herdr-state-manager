@@ -1,41 +1,67 @@
-# Implementation verification — 2026-10-16
+# Verification
 
-119 tests passed (Python 3.13.14), including:
+## Governance release acceptance (checkpoints A–F)
 
-- Complete 9-by-9 state transition matrix and terminal immutability.
-- Multi-agent parent/child trees, nested progress, project-scoped tree reads,
-  versioned/audited reparenting, terminal ancestor recovery and CLI subtask creation.
-- Watch hierarchy columns show task depth, parent, owner and descendant completion.
-- Concurrent task writers, approval decisions and single-use consumption races.
-- Idempotent retries, payload conflicts, revocation checks and no extra events.
-- Cross-project authorization and parent/owner/session/pane relationships.
-- Restart recovery, uncapped active tasks, event truncation and consistent reads
-  while another connection writes.
-- Missing/unavailable runtime distinction, incident deduplication/resolution,
-  nonoverlapping reconciliation and metadata-only Hermes adapter fixtures.
-- Real two-worker Gunicorn server on temporary localhost socket, REST/CLI recovery,
-  exact approval workflow, real optional MCP stdio exchange.
-- Headless Textual navigation, cached-data retention during API outages and exit.
-- Online backup, refusal to overwrite, schema migration repeatability and SQLite
-  WAL/foreign-key/busy-timeout settings.
+Checkpoint reports contain exact file inventories, scoped failures/diagnoses and
+executed evidence: [B](CHECKPOINT_B.md), [C](CHECKPOINT_C.md),
+[D](CHECKPOINT_D.md), [E](CHECKPOINT_E.md), [F](CHECKPOINT_F.md).
+The F report is authoritative for final acceptance status and final test counts.
+Worker handoffs marked pending are historical; use the parent checkpoint report.
 
-Wheel and source distribution build. Fresh wheel installation into an independent
-virtualenv initializes revision 0002 and passes readiness and recovery outside the
-source checkout. Migrations are packaged with the wheel; deployment scripts/docs are
-included in the source distribution. Shell installer syntax checked.
+### Automated coverage
 
-Static systemd validation reports the expected absent /opt/hsm executables, with no
-unit syntax errors. No services installed, enabled or started. Ubuntu production
-installation has not been performed. Live Hermes conversation histories and Herdr terminal output were not read. A local
-read-only trial verified two Hermes panes through the Herdr adapter; both initially
-reported idle and exposed no stable Hermes session references. Automated runtime
-tests use mocks. The bundled skill helper additionally passed creation/read-back,
-idempotent replay, project denial and agent-route restriction tests.
+- Existing complete lifecycle matrix, terminal immutability, explicit parent/child
+  ownership, project permissions, optimistic task versions and idempotency behavior.
+- Immutable contracts and event revision attribution, explicit operator amendments,
+  concurrent delegation/amendment races, inherited scopes/depth/windows and limits,
+  denied-mutation rollback with durable sanitized evidence.
+- Deliverable revisions and exact evidence identity, fresh validation after updates,
+  explicit supersession, terminal-failure durability, immutable checkpoints.
+- Existing-approval remediation, requester/grant/revision binding, canonical rejection,
+  per-failure and aggregate lifetime retry limits, atomic final-slot races.
+- Operator pause/resume, inherited containment and reparent bypass rejection,
+  independent CLI readback, real authenticated backend/Textual control integration.
+- All-state recovery, separate-process restart, session replacement, current proposal
+  eligibility, concurrent snapshot writes and complete-table comparison for read purity.
+- Full-history metrics beyond recent-event caps, replay exclusion, historical lineage
+  provenance, deterministic alert thresholds and unknown telemetry.
+- Existing real two-worker Gunicorn HTTP and optional MCP stdio integration; runtime
+  adapters use temporary/mocked resources, not live agents or external infrastructure.
+- Populated migration preservation from prior schemas, repeated upgrade, foreign-key
+  and SQLite integrity checks, WAL/busy-timeout behavior and readiness revision 0006.
 
-This execution sandbox hangs during asyncio executor shutdown even in a minimal
-standalone example. Headless TUI, real localhost and stdio tests pass outside that
-restriction. Tests use only temporary databases and simulated resources.
+### Distribution checks
 
-Live runtime databases, credentials and trial configuration are outside the repository
-and excluded from publication. No pre-existing project state database was overwritten.
-Publication status is reported separately after remote read-back.
+Build source archive and wheel with `uv build`; inspect that migrations 0001–0006
+are in the wheel and source archive includes the test fixtures, documentation,
+companion skill and deployment templates. Install the wheel into a separate virtual
+environment, run outside the checkout, and assert imports come from site-packages.
+Exercise freshly/repeatedly migrated temporary state through authenticated readiness,
+contracts, pause, recovery, metrics and state reads. No production database is needed.
+
+The source manifest explicitly includes `tests/*.py`, including `conftest.py`, so
+release archives retain their shared fixtures rather than only automatically selected
+test modules. The companion skill ships as source in the archive; it is not silently
+installed into Hermes or made a core runtime dependency.
+
+### Reproducible repository checks
+
+```bash
+.venv/bin/python -m pytest -q
+uv build --out-dir /tmp/hsm-release-dist
+bash -n scripts/install.sh
+git diff --check
+```
+
+Production upgrades remain an explicit operator operation. Passing tests does not
+install or restart services, migrate deployed state, rotate credentials or prove
+live adapter availability. Pause does not stop processes. Metadata validation does
+not prove external artifact availability. No large-history performance or context
+utilization estimate is claimed.
+
+## Historical baseline
+
+Before the governance work, checkpoint A independently verified 130 passing tests.
+Earlier 2026-10-16 verification recorded 119 tests and wheel schema 0002; those counts
+and schema claims describe that older tree, not the current release. Live/runtime
+trials recorded in older documentation are not renewed by these automated checks.
