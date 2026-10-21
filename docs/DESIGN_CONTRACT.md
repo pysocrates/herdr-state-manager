@@ -1,5 +1,39 @@
 # HSM v1 design contract
 
+## Checkpoint E: deterministic recovery and full-history reporting
+
+Task recovery is a pure authorized projection for all lifecycle states. State retains
+every v1 key/active selection and adds an independently versioned governance section.
+Rows, history and visible cursor share the caller's explicit read transaction; a single
+captured time is passed into every governance authorization-window calculation. A
+concurrent committed writer is seen wholly on a later snapshot, not partly in one read.
+Neither an event cursor nor a projected eligible action is an execution lease/ETag.
+
+Recovery carries objective, exact local/applicable immutable revisions/specifications,
+per-owner limits/use/remaining budgets, durable revision-bound artifacts/checkpoints,
+unresolved exceptions, ownership, pause and terminal state. Only a recorded checkpoint
+action can be projected, conservatively revalidated against task/contract/evidence,
+caller grants and current policy. Paused/terminal recovery always suppresses next action;
+safe bookkeeping still uses the existing explicit mutation routes. Historical successful
+mediated-action events are labelled as such, never interpreted as live authority.
+
+Metrics scan all relevant persisted records/events, not the bounded recent-event view.
+Immutable child-creation history is replayed with recorded parent changes to establish
+the root at creation, only when supported by recorded ancestry. Current root grouping
+is separate; unknown legacy provenance stays unavailable. No retroactive event rewrite
+or fabricated original lineage is permitted. New replay-mediated events carry a sanitized
+request class for reliable denial/amendment attribution. Request metrics explicitly cover
+only successes and persisted policy denials, not unrecorded HTTP failures. Canonical
+exceptions/inspections do not become observed recurrence. Missing runtime/context metrics
+remain unavailable. Event replay has no additional contribution to counts or budgets.
+
+Inclusive thresholds, denominators, orphan/stalled definitions, sorting and payload
+fields are specified in API.md's checkpoint E section. Alerts cannot change state or
+infer intent. Snapshot reads never contact adapters or external artifact storage.
+No migration: existing 0006 records suffice. Work scales with retained history and tasks;
+this version supplies exact read-derived results, not a precomputed analytics service.
+Process execution/control and context-utilization estimation remain out of scope.
+
 ## Checkpoint D: reversible governance, not lifecycle or process control
 
 Forward-only migration 0006 adds Task.governance_paused (non-null false for legacy
@@ -30,8 +64,9 @@ is guessed. Decisions are read-only snapshots requiring mutation-time revalidati
 
 Runtime control is explicitly unsupported/unacknowledged. Existing adapters remain
 observe-only; neither pause nor resume calls them. A noncooperating live runtime
-may keep running. Full recovery projections and process metrics remain checkpoint E,
-not implemented here. See API v1's checkpoint D section for exact response fields.
+may keep running. Full recovery and governance metrics are specified in checkpoint E
+above; process execution metrics remain unavailable without authoritative telemetry.
+See API v1's checkpoint D section for exact intervention response fields.
 
 ## Checkpoint C: durable evidence and controlled remediation
 

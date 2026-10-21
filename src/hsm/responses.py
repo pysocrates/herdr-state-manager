@@ -37,3 +37,4 @@ class Snapshot(BaseModel):
     recent_events: list[dict]
     warnings: list[str]
     truncation: dict[str, bool]
+    governance: dict

@@ -60,11 +60,11 @@ def summary(s, task):
             'unresolved_exceptions': len(unresolved(s, task))}
 
 
-def scope(s, ident):
+def scope(s, ident, timestamp=None):
     from .durable import deliverable_view, exception_view
     task = s.get(Task, ident)
     governing = ancestry(s, task)
-    timestamp = now()
+    timestamp = timestamp or now()
     clock = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
     authorized = list(s.db.scalars(select(Remediation).where(Remediation.project_id == task.project_id,
                                                             Remediation.status == 'authorized')))
@@ -80,7 +80,11 @@ def scope(s, ident):
         retries = [r for r in authorized if owner.id in r.budget_task_ids]
         per_failure = spec.get('max_retries_per_failure')
         identities = sorted({r.canonical_identity for r in retries})
-        constraints.append({'task_id': owner.id, 'contract_id': revision.id, 'distance': distance,
+        constraints.append({'task_id': owner.id, 'contract_id': revision.id,
+            'contract_revision': revision.revision, 'distance': distance,
+            'limits': {key: spec.get(key) for key in ('max_children', 'max_descendant_depth', 'runtime_seconds', 'retry_budget', 'max_retries_per_failure')},
+            'used': {'delegation_authorizations': consumed(s, owner.id), 'authorized_retries': len(retries),
+                     'elapsed_authorization_seconds': max(0, elapsed)},
             'remaining_children': max(0, spec['max_children'] - consumed(s, owner.id)) if spec.get('max_children') is not None else None,
             'remaining_descendant_depth': max(0, spec['max_descendant_depth'] - distance) if spec.get('max_descendant_depth') is not None else None,
             'remaining_runtime_seconds': max(0, seconds - elapsed) if seconds is not None else None,

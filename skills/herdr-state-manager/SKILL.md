@@ -154,8 +154,8 @@ server's applicable contracts, remaining budgets, deliverable readiness, unresol
 exceptions and runtime capability. `hsm checkpoint TASK --project SLUG --limit 50
 --offset 0 [--json]` reads recorded checkpoint evidence/actions only; never infer
 new authorization from an old checkpoint. UUIDs do not require `--project`.
-The scope REST route is `GET /tasks/UUID/scope`; use the CLI or authenticated REST
-client for it (the companion request helper's allowlist is separate).
+The scope REST route is `GET /tasks/UUID/scope`; use the CLI or companion request
+helper for this authenticated read.
 
 Only an explicitly authorized operator with `tasks:write` and project access may use
 `hsm pause TASK --project SLUG --reason TEXT --idempotency-key KEY` or the matching
@@ -173,6 +173,34 @@ events are bounded, not full history. Missing legacy governance fields are unkno
 Runtime control is unsupported/unacknowledged: pause never kills a process, resume
 never starts one, and clearing a local pause cannot bypass an ancestor's governance.
 These repository skill changes do not install a skill or deploy the server.
+
+## Recovery and deterministic reporting (checkpoint E)
+
+After context replacement or restart, read `GET /tasks/UUID/recovery` for exact task
+state in any lifecycle state, including paused/terminal work omitted from `/state`.
+The helper permits this route, `/tasks/UUID/scope`, `/tasks/UUID/metrics` and
+`/governance/metrics --query project=SLUG`. Task metrics select the exact task, not
+its descendants. All reads require existing project/read grants; never borrow credentials.
+
+Inspect local/applicable immutable contracts, objective, per-owner budgets, ownership,
+full deliverable revisions/evidence, checkpoints and unresolved exceptions. The outer
+`/state` schema stays v1 and adds independently versioned `governance` v1 with active
+recovery plus all-project-history metrics. Missing governance on an old server is unknown.
+`as_of` and `event_cursor` identify the consistent read, not an execution lease.
+
+Never act on a historical checkpoint as evergreen permission. Recovery returns a next
+action only when explicitly recorded and still eligible; otherwise null with a reason.
+Paused/terminal recovery suppresses all next actions and never resumes work. An eligible
+action still requires the exact ordinary write/grant/version checks. Last authorization
+is a recorded successful mediated event, not proof of execution or current authority.
+
+Metrics count persisted history independently of recent-event truncation. Historical
+root-at-creation and current root counts are different; missing original history stays
+unavailable. Canonical exceptions/inspections are not observed recurring failures.
+Observed amendment requests exclude unrecorded auth/validation/stale failures. Runtime
+source labels distinguish cached registration metadata from live execution; unknown
+context utilization is never estimated. Alerts are fixed-threshold observations, not
+instructions to expand scope, retry, pause/resume, or declare completion.
 
 ## Lifecycle and retries
 

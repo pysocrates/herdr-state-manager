@@ -13,7 +13,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 # Agent operations only. Server remains responsible for project/action authorization.
 UUID = r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 ALLOWED = {
-    'GET': rf'/(?:projects|tasks(?:/tree|/{UUID}(?:/(?:events|tree|contract))?)?|agent-sessions(?:/{UUID})?|panes(?:/{UUID})?|approvals(?:/{UUID})?|(?:deliverables|deliverable-revisions|validation-evidence|checkpoints|exceptions|remediations)(?:/{UUID})?|events|incidents|state(?:/projects/[a-zA-Z0-9_-]{{1,80}})?|health(?:/(?:live|ready))?)',
+    'GET': rf'/(?:governance/metrics|projects|tasks(?:/tree|/{UUID}(?:/(?:events|tree|contract|scope|recovery|metrics))?)?|agent-sessions(?:/{UUID})?|panes(?:/{UUID})?|approvals(?:/{UUID})?|(?:deliverables|deliverable-revisions|validation-evidence|checkpoints|exceptions|remediations)(?:/{UUID})?|events|incidents|state(?:/projects/[a-zA-Z0-9_-]{{1,80}})?|health(?:/(?:live|ready))?)',
     'POST': rf'/(?:tasks(?:/{UUID}/(?:transition|deliverables|checkpoints|exceptions))?|deliverables/{UUID}/(?:revisions|evidence|supersede)|exceptions/{UUID}/(?:inspect|resolve|remediations)|remediations/{UUID}/authorize|agent-sessions(?:/{UUID}/heartbeat)?|panes(?:/{UUID}/heartbeat)?|approvals(?:/{UUID}/consume)?)',
     'PATCH': rf'/(?:tasks|agent-sessions|panes)/{UUID}',
 }

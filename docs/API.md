@@ -439,3 +439,130 @@ No transition cascades. Parent completion is still an explicit allowed lifecycle
 transition. A terminal parent with active descendants appears in snapshot warnings.
 This permits intentional follow-up beneath a terminal task while keeping unfinished
 work visible. Parent linkage is grouping, not a dependency/scheduling engine.
+
+## Checkpoint E: versioned recovery and governance metrics
+
+All paths below are beneath `/api/v1`, return the normal `{data: ...}` envelope,
+and require bearer authentication plus project `read` permission. No GET writes,
+consumes grants, resumes tasks, opens artifact references or calls runtime adapters.
+
+| GET route | Selection / query |
+|---|---|
+| `/tasks/UUID/recovery` | Exact task in **any** lifecycle state; no query parameters |
+| `/tasks/UUID/metrics` | Exact task (not its subtree); no query parameters |
+| `/governance/metrics` | All persisted tasks in permitted projects; optional `project=SLUG` |
+
+Unknown/repeated parameters fail 422; out-of-scope project/task reads fail 403.
+The companion agent helper permits all three routes and `/tasks/UUID/scope`.
+
+## Recovery payload v1
+
+`schema_version: 1`, `as_of`, and `event_cursor` accompany the existing scope fields:
+`task`, `contracts` (applicable immutable revisions, nearest first),
+`remaining_budget`, `deliverables` (full revisions/evidence), `unresolved_exceptions`,
+`runtime_control`, `governance_decision`, and `generated_at` (equal to `as_of`).
+Additional fields are `objective`, `local_contract` (null when absent), `checkpoints`
+(ascending creation time/ID), `latest_checkpoint`, `ownership`, `readiness`,
+`last_recorded_authorized_action`, `next_authorized_action`, `next_action_reason`,
+`restoration: read_only_no_resume`, and source-labelled `runtime`.
+
+Ownership preserves the registered owner ID and its session, even when ended.
+Readiness separates `task_completed`, `has_requirements`, `required_keys`,
+`validated_keys`, `missing_required_keys`, and `requirements_satisfied`. An empty
+required set is satisfied but is not counted as a task with requirements satisfied.
+Budget constraints expose owner/contract ID, revision, ancestor-relative distance,
+limits, used lifetime delegation/retry authorizations and elapsed authorization
+seconds, plus remaining allowances. Null limits remain unlimited/unspecified.
+These seconds are an authorization window, **not** execution time.
+
+The last recorded authorization is the latest persisted successful task create/
+update/transition/pause/resume, contract revision, deliverable revise/validate/
+supersede, remediation authorization or approval consumption event; null if none.
+It is historical evidence, not a live grant. Other observation/request/checkpoint
+events are not treated as execution authorization. Old event details are unchanged.
+
+Only the latest checkpoint's explicitly recorded action can be projected. It is
+suppressed with a reason when task version/contracts or its exact validation
+evidence changed, current caller lacks write eligibility, or transition/window/
+prohibition/required-output rules no longer permit the action. Recovery conservatively
+suppresses **all** next actions for paused or terminal tasks, even though safe evidence
+bookkeeping and certain closure writes may still be explicitly requested via their
+normal API. `record_evidence` requires a registered revision target; it is not a bound
+future payload. Eligibility is always `eligible_read_only_recheck_at_mutation`, never
+a command, automatic resume or guarantee of future authorization.
+
+## Additive `/state` schema evolution
+
+The outer `schema_version` stays **1**. Every pre-existing v1 key remains, including
+unchanged active-task and active-with-ancestors selection. The new `governance`
+section has its own **schema_version: 1**, `as_of`, `event_cursor`,
+`selection: active_with_ancestors`, `recovery` (same selected hierarchy order), and
+`metrics` (all permitted project tasks, including terminal work). Consumers must
+ignore additive fields and treat a missing section on older servers as unavailable.
+Independent section versioning permits later governance evolution without redefining
+the legacy active resources. Standalone task recovery includes terminal tasks omitted
+from active selection. All dependent rows and the visible project event cursor share
+one explicit SQLite read transaction; one captured timestamp drives all governance
+budget projections. The cursor is not an observation ETag or a claim that no concurrent
+writer has committed since the read snapshot was established.
+
+## Metrics payload v1 and deterministic definitions
+
+Metrics include `schema_version`, `as_of`, `event_cursor`, sorted `project_ids`,
+`task_id`, `selection`, `window: all_persisted_history`, `thresholds`, `counts`,
+`provenance`, `coverage`, per-task `budgets`, `orphan_task_ids`, `stalled_task_ids`,
+`definitions`, source-labelled `runtime`, and `alerts` sorted by task ID then code.
+All persisted relevant events/records are scanned, **not** `recent_events` or its cap.
+Transport idempotent replays produce no additional metric events or authorization use.
+
+Counts include tasks/completed/terminal tasks; known child creation events;
+delegation records **including reparent authorizations**; governance denials,
+classified delegation denials and unclassified legacy denials; contract initializations,
+successful amendments and observed amendment requests; canonical/open exceptions,
+recording events and explicit inspections; remediation attempt records and authorized
+retries; registered/validated deliverables; and tasks with required outputs/satisfied
+required outputs. Counts are absolute, with their populations explicit; there is no
+implicit recent time window, inferred rate, or execution-completion percentage.
+
+New replay-mediated audit events carry a sanitized `details.request_type` enum
+(`delegation.create`, `task.create`, `contract.initialize`, `contract.amend`,
+`remediation.request`, `remediation.authorize`, `task.transition`, `other`). Policy
+denials retain `code` and governing revision IDs plus that operation class. Existing
+events are never rewritten. Observed amendment requests are successes plus recorded
+policy denials, **not** all HTTP attempts: auth, validation and stale-version failures
+are not persisted. Legacy ambiguous denials are not classified from their code alone.
+
+Historical child counts replay recorded creation/parent-change events at each birth
+cursor. They mean **root at that child's creation**, not today's root or an assumed
+original delegation root. Missing ancestry is explicitly unavailable. Current child
+rows grouped by current root are separately labelled and may differ after reparenting;
+reparent authorization records are not new child creations. Legacy missing creation
+parent metadata and tasks with no creation event are separately counted; current
+mutable lineage never fills history.
+
+Canonical exceptions are one task/failure-kind record, not occurrence telemetry.
+Inspections are not repeated failures. Observed exception recurrence is unavailable
+because duplicate canonical recordings are not persisted. Attempts count remediation
+records; authorized retries count only successful authorizations, not approval requests
+or transport retries. Unknown runtime/context utilization is null with an unavailable
+reason, never zero or estimated from tokens/conversation. Runtime status/heartbeat/
+observation times are labelled `persisted_agent_sessions`, not live process evidence.
+
+Alerts are observations, not enforcement or inferred intent. Fixed inclusive thresholds:
+
+- `depth_limit_approached`: any applicable remaining descendant depth <= **1**.
+- `repeated_denied_expansion`: >= **3** classified delegation denials for the task.
+- `multiple_canonical_exceptions`: >= **3** distinct canonical exceptions; recurrence
+  remains unknown (no unsupported repeated-occurrence alert is manufactured).
+- `repeated_authorized_retries`: >= **3** recorded successful retry authorizations.
+- `closure_missing_required_outputs`: missing current required keys on a terminal
+  task, or with a recorded required-output closure denial. Safe failed/cancelled exits
+  remain valid; this alert does not declare those transitions illegal.
+- `stalled_unresolved_exceptions`: an open exception's last explicit inspection/
+  observation (`last_seen_at`) is at least **3600 seconds** old, including paused/terminal
+  tasks. This is a metadata-age signal, not proof of runtime inactivity.
+
+An orphan is an active task with no registered owner or an ended owner. Unknown
+heartbeat/status alone does not establish orphanhood. Lists/alerts/budgets are stable
+for the same rows, caller grants and captured time. Reads never reset ages or counters.
+No database migration is introduced by E; the schema remains revision **0006**.

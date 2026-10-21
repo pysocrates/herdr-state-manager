@@ -35,6 +35,17 @@ def test_skill_helper_registration_readback_retry_and_scope(http_api, tmp_path):
     contract = invoke(http_api, 'GET', '/tasks/' + task['id'] + '/contract', token_file=private)
     assert contract.returncode == 0, contract.stderr
     assert json.loads(contract.stdout)['data'] == {'current': None, 'history': []}
+    for suffix in ['scope', 'recovery', 'metrics']:
+        result = invoke(http_api, 'GET', '/tasks/' + task['id'] + '/' + suffix)
+        assert result.returncode == 0, result.stderr
+        data = json.loads(result.stdout)['data']
+        if suffix != 'scope':
+            assert data['schema_version'] == 1 and data['event_cursor'] > 0
+    result = invoke(http_api, 'GET', '/governance/metrics', '--query', 'project=alpha')
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)['data']['counts']['tasks'] == 1
+    result = invoke(http_api, 'GET', '/governance/metrics', '--query', 'project=beta')
+    assert result.returncode == 1 and json.loads(result.stderr)['error']['status'] == 403
     denied = invoke(http_api, 'GET', '/state', '--query', 'project=beta')
     assert denied.returncode == 1
     assert json.loads(denied.stderr)['error']['status'] == 403

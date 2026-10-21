@@ -202,6 +202,22 @@ def create_app(config=None):
         from .interventions import scope
         return run(lambda s: {'data': scope(s, str(ident))})
 
+    @app.get('/api/v1/tasks/<uuid:ident>/recovery')
+    def task_recovery(ident):
+        from .reporting import recovery
+        if request.args:
+            raise Problem(422, 'query_validation', 'Recovery accepts no query parameters')
+        return run(lambda s: {'data': recovery(s, str(ident))})
+
+    @app.get('/api/v1/governance/metrics')
+    @app.get('/api/v1/tasks/<uuid:ident>/metrics')
+    def governance_metrics(ident=None):
+        from .reporting import metrics
+        if (any(k != 'project' for k in request.args) or len(request.args.getlist('project')) > 1
+                or ident and request.args):
+            raise Problem(422, 'query_validation', 'Metrics accepts only an optional project filter, or exact task')
+        return run(lambda s: {'data': metrics(s, request.args.get('project'), str(ident) if ident else None)})
+
     @app.post('/api/v1/tasks/<uuid:ident>/pause')
     @app.post('/api/v1/tasks/<uuid:ident>/resume')
     def task_intervention(ident):

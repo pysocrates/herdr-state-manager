@@ -85,7 +85,7 @@ def test_relationships_and_cycles(env, make_task):
     assert call('POST', '/tasks', {'project_id': 'alpha', 'task_key': parent['task_key'], 'title': 'Duplicate', 'objective': 'X'}, key='duplicate').status_code == 409
 
 
-def test_context_recovery_restart_and_runtime(env, make_task):
+def test_context_recovery_restart_and_runtime(env, make_task, monkeypatch):
     cfg, app, call = env
     agent1 = call('POST', '/agent-sessions', {'project_id': 'alpha', 'profile': 'schema'}, token='a').json['data']
     agent2 = call('POST', '/agent-sessions', {'project_id': 'alpha', 'profile': 'worker'}, token='a').json['data']
@@ -96,6 +96,9 @@ def test_context_recovery_restart_and_runtime(env, make_task):
     assert call('POST', f"/panes/{pane['id']}/heartbeat", {}, token='a').json['data']['heartbeat_at']
     call('POST', f"/tasks/{parent['id']}/transition", {'expected_version': 1, 'state': 'blocked'}, key='block')
     snapshot = call('GET', '/state/projects/alpha').json['data']
+    # Compare the entire additive projection at the same captured read time.
+    # Preserve every original row/field assertion, including nested governance.
+    monkeypatch.setattr('hsm.services.now', lambda timestamp=snapshot['generated_at']: timestamp)
     restarted = create_app(cfg)
     fresh = restarted.test_client().get('/api/v1/state/projects/alpha', headers={'Authorization': 'Bearer ' + 'a' * 32}).json['data']
     snapshot.pop('generated_at'); fresh.pop('generated_at')

@@ -46,6 +46,8 @@ class Service:
 
     def event(self, project, kind, task=None, previous=None, new=None, details=None):
         details = dict(details or {})
+        if getattr(self, '_request_type', None):
+            details['request_type'] = self._request_type
         if task:
             from .governance import ancestry
             # Snapshot now, including after a denial's savepoint rollback. Never
@@ -193,7 +195,20 @@ class Service:
         if old:
             self.db.delete(old)
             self.db.flush()
-        body, status = self.guarded(operation)
+        # Sanitized operation class only: no payload/key/route identifiers in audit.
+        previous_type = getattr(self, '_request_type', None)
+        self._request_type = (
+            'delegation.create' if route == 'POST /tasks' and data.get('parent_id') else
+            'task.create' if route == 'POST /tasks' else
+            ('contract.amend' if data.get('expected_contract_version', 0) else 'contract.initialize')
+            if route.endswith('/contract') else
+            'remediation.request' if route.endswith('/remediations') else
+            'remediation.authorize' if route.endswith('/authorize') else
+            'task.transition' if route.endswith('/transition') else 'other')
+        try:
+            body, status = self.guarded(operation)
+        finally:
+            self._request_type = previous_type
         self.db.add(Idempotency(scope=scope, digest=digest, response=body, status=status,
                                expires_at=(datetime.now(timezone.utc) + timedelta(hours=24)).isoformat().replace('+00:00', 'Z')))
         return body, status
@@ -284,6 +299,7 @@ class Service:
 
     def snapshot(self, project=None, recent=30):
         projects = self.projects()
+        timestamp = now()
         if project:
             projects = [self.project(project)]
         ids = [p.id for p in projects]
@@ -305,7 +321,7 @@ class Service:
         events = list(self.db.scalars(select(Event).where(Event.project_id.in_(ids))
                                      .order_by(Event.cursor.desc()).limit(recent + 1)))
         from .responses import Snapshot
-        result = {'schema_version': 1, 'project': project, 'generated_at': now(),
+        result = {'schema_version': 1, 'project': project, 'generated_at': timestamp,
                 'revision': self.db.scalar(select(func.max(Event.cursor)).where(Event.project_id.in_(ids))) or 0,
                 'projects': [serialize(p) for p in projects], 'active_tasks': tasks,
                 'task_hierarchy': {'selection': 'active_with_ancestors', 'nodes': hierarchy, 'root_ids': [n['id'] for n in hierarchy if n['depth'] == 0], 'truncation': {'nodes': False}},
@@ -313,12 +329,17 @@ class Service:
                 'active_panes': rows(Pane, Pane.terminated_at.is_(None)),
                 'related_ended_sessions': rows(AgentSession, AgentSession.ended_at.is_not(None), AgentSession.id.in_(owner_ids)),
                 'related_terminated_panes': rows(Pane, Pane.terminated_at.is_not(None), Pane.task_id.in_(task_ids)),
-                'pending_approvals': rows(Approval, Approval.status == 'pending', Approval.expires_at > now()),
+                'pending_approvals': rows(Approval, Approval.status == 'pending', Approval.expires_at > timestamp),
                 'outstanding_approvals': [self.resource_view(a) for a in self.db.scalars(select(Approval).where(Approval.project_id.in_(ids), Approval.status.in_(['pending', 'approved']), Approval.consumed_at.is_(None)).order_by(Approval.project_id, Approval.id))], 'blocked_tasks': [t for t in tasks if t['state'] == 'blocked'],
                 'unresolved_incidents': rows(Incident, Incident.status == 'open'),
                 'adapter_health': rows(AdapterHealth), 'recent_events': [serialize(e) for e in events[:recent]],
                 'warnings': self.snapshot_warnings(ids) + [f"{n['project_id']}/{n['task_key']}: terminal parent has {n['descendant_summary']['active']} active descendants" for n in hierarchy if n['state'] not in ACTIVE and n['descendant_summary']['active']],
                 'truncation': {'recent_events': len(events) > recent}}
+        from .reporting import recovery, metrics
+        result['governance'] = {'schema_version': 1, 'as_of': timestamp,
+            'event_cursor': result['revision'], 'selection': 'active_with_ancestors',
+            'recovery': [recovery(self, n['id'], timestamp, result['revision']) for n in hierarchy],
+            'metrics': metrics(self, project, as_of=timestamp, event_cursor=result['revision'])}
         return Snapshot.model_validate(result).model_dump()
 
     def snapshot_warnings(self, projects):

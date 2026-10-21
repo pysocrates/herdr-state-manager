@@ -85,7 +85,7 @@ def test_denial_is_durable_sanitized_and_replayed(env, make_task):
         assert db.scalar(select(func.count()).select_from(Delegation)) == 0
         denials = list(db.scalars(select(Event).where(Event.event_type == 'governance.denied')))
         assert len(denials) == 1
-        assert denials[0].details == {'code': 'child_budget',
+        assert denials[0].details == {'code': 'child_budget', 'request_type': 'delegation.create',
             'governing_contract_ids': [revision.json['data']['contract']['id']]}
         assert 'secret-value' not in str(denials[0].details)
     assert call('POST', '/tasks', payload, token='b', key='forbidden').status_code == 403
@@ -348,7 +348,10 @@ def test_prohibited_operations_are_atomic_and_inherited(env, make_task, operatio
         assert db.scalar(select(func.count()).select_from(Task)) == 2
         assert db.scalar(select(func.count()).select_from(Delegation)) == 1
         denial = db.scalar(select(Event).where(Event.event_type == 'governance.denied'))
-        assert denial.details == {'code': 'prohibited_operation', 'governing_contract_ids': [revision['id']]}
+        expected = {'code': 'prohibited_operation', 'governing_contract_ids': [revision['id']]}
+        if operation != 'task.patch':
+            expected['request_type'] = 'delegation.create' if operation == 'task.create' else 'task.transition'
+        assert denial.details == expected
 
 
 @pytest.mark.parametrize('state', ['failed', 'cancelled'])
