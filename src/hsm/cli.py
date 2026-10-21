@@ -1,7 +1,9 @@
 import json
 import os
 import sqlite3
+import sys
 import time
+from contextlib import redirect_stdout
 from pathlib import Path
 import typer
 from rich.console import Console
@@ -136,6 +138,82 @@ def task(task_id: str, project: str | None = None, json: bool = False, tree: boo
             render_task_tree(result['data'])
     else:
         render({'data': item}, json)
+
+
+@app.command()
+def scope(task: str, project: str | None = None, json: bool = False):
+    """Inspect authoritative scope, budgets, evidence and exceptions (no execution)."""
+    item = resolve_task(task, project)
+    render(fetch('/tasks/' + item['id'] + '/scope'), json)
+
+
+@app.command()
+def checkpoint(task: str, project: str | None = None, json: bool = False,
+               limit: int = typer.Option(50, min=1, max=200),
+               offset: int = typer.Option(0, min=0)):
+    """Inspect one bounded page of recorded checkpoints; never creates or resumes work."""
+    item = resolve_task(task, project)
+    result = fetch('/checkpoints', {'task_id': item['id'], 'project': project,
+                                    'limit': limit, 'offset': offset})
+    if json:
+        render(result, True)
+    else:
+        console.print_json(data=result['data'])
+        if result.get('pagination', {}).get('has_more'):
+            typer.echo('More checkpoints available; use --offset and --limit.')
+
+
+def intervene(task, operation, reason, idempotency_key, expected_version, project, as_json):
+    if not reason.strip() or not idempotency_key.strip():
+        raise typer.BadParameter('Reason and idempotency key must not be blank')
+    item = resolve_task(task, project)
+    # Read exact task even when key resolution returned a list projection.
+    item = fetch('/tasks/' + item['id'])['data']
+    version = item['version'] if expected_version is None else expected_version
+    if version != item['version']:
+        raise typer.BadParameter('Expected version differs from current task; inspect again')
+    typer.echo(f"{operation}: {item['project_id']}/{item['task_key']} ({item['id']}) version={version}\n"
+               f"Reason: {reason}\nRuntime control unsupported: this does not stop or start processes.", err=True)
+    # Some Click/input implementations echo the answer on stdout despite err=True.
+    # Keep the JSON channel clean throughout the entire interactive prompt.
+    with redirect_stdout(sys.stderr):
+        confirmed = typer.confirm('Confirm this exact governance intervention?', default=False, err=True)
+    if not confirmed:
+        raise typer.Abort()
+    error = None
+    try:
+        Client().request('/tasks/' + item['id'] + '/' + operation, method='POST',
+                         data={'expected_version': version, 'reason': reason},
+                         idempotency_key=idempotency_key)
+    except ClientError as exc:
+        error = exc
+    # Independent readback even after a denied/ambiguous mutation; never retry or escalate.
+    try:
+        verified = Client().request('/tasks/' + item['id'])
+    except ClientError as read_error:
+        typer.echo(f'Intervention outcome unverified. Write error: {error or "none reported"}. '
+                   f'Readback failed: {read_error}. Do not blindly retry.', err=True)
+        raise typer.Exit(1)
+    render(verified, as_json)
+    if error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1)
+
+
+@app.command()
+def pause(task: str, reason: str = typer.Option(...), idempotency_key: str = typer.Option(...),
+          expected_version: int | None = typer.Option(None, min=1),
+          project: str | None = None, json: bool = False):
+    """Confirm a governance pause, not a process stop. Requires operator tasks:write."""
+    intervene(task, 'pause', reason, idempotency_key, expected_version, project, json)
+
+
+@app.command()
+def resume(task: str, reason: str = typer.Option(...), idempotency_key: str = typer.Option(...),
+           expected_version: int | None = typer.Option(None, min=1),
+           project: str | None = None, json: bool = False):
+    """Confirm clearing a local governance pause; ancestor policy still applies."""
+    intervene(task, 'resume', reason, idempotency_key, expected_version, project, json)
 
 
 @app.command()

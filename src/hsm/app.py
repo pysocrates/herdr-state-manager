@@ -156,7 +156,7 @@ def create_app(config=None):
     def ready():
         with transaction(engine) as db:
             revision = db.execute(text('SELECT version_num FROM alembic_version')).scalar()
-            if revision != '0005':
+            if revision != '0006':
                 raise Problem(503, 'schema_not_ready', 'Schema migration required')
         return jsonify(data={'status': 'ready', 'schema_revision': revision})
 
@@ -196,6 +196,25 @@ def create_app(config=None):
             return run(lambda s: {'data': s.task_view(s.get(Task, ident))})
         data = body(TaskPatch)
         return run(lambda s: {'data': s.patch_task(ident, data)}, True)
+
+    @app.get('/api/v1/tasks/<uuid:ident>/scope')
+    def task_scope(ident):
+        from .interventions import scope
+        return run(lambda s: {'data': scope(s, str(ident))})
+
+    @app.post('/api/v1/tasks/<uuid:ident>/pause')
+    @app.post('/api/v1/tasks/<uuid:ident>/resume')
+    def task_intervention(ident):
+        from .schemas import Intervention
+        from .interventions import intervene
+        ident, data = str(ident), body(Intervention)
+        paused = request.path.endswith('/pause')
+        def change(s):
+            item = s.get(Task, ident, 'tasks:write')
+            s.permit(item.project_id, 'tasks:write', operator=True)
+            return s.replay('POST ' + request.path, request.headers.get('Idempotency-Key'), data,
+                lambda: ({'data': intervene(s, ident, data, paused)}, 200))
+        return run(change, True)
 
     @app.route('/api/v1/tasks/<uuid:ident>/contract', methods=['GET', 'POST'])
     def task_contract(ident):

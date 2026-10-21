@@ -53,6 +53,8 @@ def check_complete(s, task):
 
 
 def check_work(s, task, operation):
+    from .interventions import check_unpaused
+    check_unpaused(s, task)
     for owner, rev in ancestry(s, task):
         check_operation(task, rev, operation)
         check_window(task, rev)

@@ -188,7 +188,7 @@ def test_migration_populated_0003(tmp_path):
         assert db.scalar(select(func.count()).select_from(TaskContract)) == 0
         assert db.execute(text('PRAGMA foreign_key_check')).all() == []
         assert db.execute(text('PRAGMA integrity_check')).scalar() == 'ok'
-        assert db.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0005'
+        assert db.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0006'
     engine.dispose()
 
 
@@ -287,7 +287,7 @@ def test_amendment_races_delegation(env, make_task):
 
 
 def test_readiness(env):
-    assert env[2]('GET', '/health/ready').json['data']['schema_revision'] == '0005'
+    assert env[2]('GET', '/health/ready').json['data']['schema_revision'] == '0006'
 
 
 @pytest.mark.parametrize('spec', [

@@ -47,7 +47,7 @@ def test_correlation_final_replay_restart(env):
     assert response.json == result.json
     restarted.extensions['hsm_engine'].dispose()
     assert call('GET', '/approvals').json['data'] == []
-    assert call('GET', '/health/ready').json['data']['schema_revision'] == '0005'
+    assert call('GET', '/health/ready').json['data']['schema_revision'] == '0006'
 
 
 def test_post_without_pre_and_missing_correlation(env):

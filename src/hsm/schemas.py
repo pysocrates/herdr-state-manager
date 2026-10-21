@@ -90,6 +90,17 @@ class Versioned(Input):
     expected_version: Annotated[int, Field(ge=1)]
 
 
+class Intervention(Versioned):
+    reason: Text
+
+    @field_validator('reason')
+    @classmethod
+    def nonblank(cls, value):
+        if not value.strip():
+            raise ValueError('Reason must not be blank')
+        return value
+
+
 class ArtifactData(Input):
     reference: Text
     artifact_identity: Annotated[str, Field(min_length=1, max_length=512)]

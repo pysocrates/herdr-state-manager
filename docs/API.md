@@ -1,5 +1,63 @@
 # API v1
 
+## Checkpoint D: governance intervention (schema revision 0006)
+
+`GET /api/v1/tasks/{uuid}/scope` requires the task project's `read` grant and
+returns `{data:{task,contracts,remaining_budget,deliverables,unresolved_exceptions,
+runtime_control,governance_decision,generated_at}}`. `task` is the ordinary full
+task view; contracts are serialized current applicable TaskContract records,
+nearest first. Deliverables include durable revisions/evidence (also on terminal
+tasks), and exceptions are unresolved task exceptions, not runtime incidents.
+`runtime_control` is always `{supported:false,acknowledged:false}`. The read-only
+decision identifies paused ancestors and terminal state; it is not a grant and
+cooperating runtimes must recheck authoritative mutations.
+
+`POST /api/v1/tasks/{uuid}/pause` and `/resume` require operator role, project
+`tasks:write`, `Idempotency-Key`, and JSON `{expected_version:1,reason:"investigate"}`.
+Version is a strict positive integer; reason is a nonblank string of 1..4096
+characters; extra fields are rejected. Success is 200 `{data:full_task_view}`.
+Each operation changes only local governance state, task version/update time and
+audit metadata. Stale versions, the same local state, or terminal tasks give 409;
+insufficient grants give 403. Same-key same-payload retries return the original
+response without another event/version change; altered payload gives 409. Replay
+is historical receipt, not a fresh indication of effective state. Identity and
+time come from the authenticated principal and server. Latest audit fields are
+`governance_changed_by`, `governance_changed_at`, `governance_reason`; immutable
+`task.paused`/`task.resumed` events preserve all prior reasons and actor/timestamp.
+
+All task list/detail/tree/state hierarchy nodes share a `governance` object:
+`paused`, `effective_paused`, `remaining_children`, `ready_deliverables`,
+`required_deliverables`, `unresolved_exceptions`. Local pause differs from effective
+pause inherited through **all** ancestors, even without contracts. Resuming a
+locally paused descendant does not override an ancestor pause. Required counts
+are local exact distinct keys (zero without contract); ready counts are all local
+non-superseded deliverables with current passing evidence, not just required keys.
+
+Scope `remaining_budget.constraints` carries each applicable owner's task/contract
+ID and relative distance: lifetime direct-child slots, descendant depth remaining
+from the selected task, remaining elapsed authorization-window seconds, aggregate
+retry allowance, per-canonical-failure allowance and consumed-identity remainders.
+`max_retries_per_failure` is the allowance for an unseen identity; the accompanying
+map reports previously consumed identities. Top-level `remaining_children` is
+the selected task's local allowance only (ancestor direct-child slots cannot limit
+grandchildren); depth/window/retry top-level values are the minimum non-null
+applicable constraint. Exhausted values clamp to zero; unconstrained values are
+null, never inferred from process telemetry. Missing contracts produce null scalar
+budgets and an empty constraints list. These are allowance reports, not permission
+to execute: pause, lifecycle, resources and other rules still apply.
+
+Pause denies descendant child creation, ordinary task PATCH (including ownership,
+objective and resource changes), work transitions, contract amendment, generic
+grant consumption and remediation request/authorization. Reparenting into/out of
+a paused tree, or moving an ancestor containing paused descendants, is denied.
+Failure/cancel remain lawful exits. Review/completion may close existing work only
+through existing lifecycle, contract prohibition/window and required-deliverable
+checks; pause does not waive those checks. Durable artifact/evidence, exception and
+checkpoint bookkeeping remains available under existing validation, including
+next-action eligibility. No pause/resume changes owners, artifacts or lifecycle,
+refunds budgets, extends windows, starts/stops a process or restarts work. Optional
+runtime adapters remain observe-only; D introduces no execution/control adapter.
+
 ## Checkpoint C: durable work (schema revision 0005)
 
 All routes have the `/api/v1` prefix. New POST routes return 201 with `{data:...}`,

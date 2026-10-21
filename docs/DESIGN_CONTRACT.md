@@ -1,5 +1,38 @@
 # HSM v1 design contract
 
+## Checkpoint D: reversible governance, not lifecycle or process control
+
+Forward-only migration 0006 adds Task.governance_paused (non-null false for legacy
+rows) and nullable latest actor/time/reason fields. No old migration is rewritten.
+Operator pause/resume uses the existing serialized Service transaction, replay,
+project grants, version checks and audit events. It cannot change terminal tasks.
+Resume removes one local gate only, never resumes execution, changes lifecycle,
+reassigns ownership, discards artifacts or resets authorization accounting.
+
+Pause ancestry is independent of contract ancestry. The shared check_work gate
+denies child creation, ordinary PATCH, work transitions, approval consumption and
+remediation across the entire tree. Reparent checks cover source/destination and
+paused descendants; contract amendments also require unpaused ancestry. Review
+and completion are safe bookkeeping exits, retaining all ordinary lifecycle,
+contract-window/prohibition and required-deliverable checks. Failure/cancel remain
+available. Recording artifacts/evidence, exceptions and checkpoints is evidence
+preservation, not permission to do external work; existing next-action checks apply.
+
+Every ordinary task/hierarchy projection is enriched by the shared Service forest,
+not a competing hierarchy API. Scope is a transaction-consistent authorized read
+of full task, applicable immutable contract revisions, durable deliverables,
+unresolved task exceptions and current count/time allowances. Direct child budgets
+belong to each owner; depth is relative to the selected task, aggregate retries use
+historical authorization lineage, and windows are elapsed wall-clock authorization,
+not CPU/process usage. Null means unconstrained. Scope exposes per-owner constraints
+so ancestor-specific allowances are not silently conflated. No runtime telemetry
+is guessed. Decisions are read-only snapshots requiring mutation-time revalidation.
+
+Runtime control is explicitly unsupported/unacknowledged. Existing adapters remain
+observe-only; neither pause nor resume calls them. A noncooperating live runtime
+may keep running. Full recovery projections and process metrics remain checkpoint E,
+not implemented here. See API v1's checkpoint D section for exact response fields.
+
 ## Checkpoint C: durable evidence and controlled remediation
 
 Revision 0005 adds Deliverable, DeliverableRevision, ValidationEvidence, Checkpoint,

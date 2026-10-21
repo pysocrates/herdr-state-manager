@@ -70,6 +70,53 @@ project filter and press Enter; `r` refreshes, `q` exits. It never polls runtime
 Normal CLI commands work without a graphical desktop. JSON output uses the REST
 envelope and stable schema version for recovery snapshots.
 
+## Governance inspection and intervention (checkpoint D)
+
+```bash
+hsm scope FEATURE-1 --project example --json
+hsm checkpoint FEATURE-1 --project example --limit 50 --offset 0
+hsm pause FEATURE-1 --project example --reason "Review scope violation" \
+  --idempotency-key feature-1-pause-review
+hsm resume FEATURE-1 --project example --reason "Review completed" \
+  --idempotency-key feature-1-resume-reviewed --expected-version 8
+```
+
+Task UUIDs work without `--project`; human keys require it. `scope` displays the
+server's task, applicable contracts, remaining budgets, deliverables, unresolved
+exceptions and runtime-control capability. `checkpoint` inspects a bounded page of
+persisted checkpoints, including exact evidence and recorded next action; it never
+creates a checkpoint, invents an action, restores a runtime or resumes work.
+
+Pause/resume require an explicitly configured **operator** with `tasks:write` and
+project access. Clients never load or promote to an operator credential after denial.
+Both commands fetch current task/version, display target/version/reason, and require
+explicit confirmation (even with `--expected-version`). A supplied version must match
+the preflight read. Every attempted POST is followed by an independent task GET,
+including denied or ambiguous writes. Readback failures are explicitly unverified;
+there are no automatic retries. Preserve the exact key/payload for an ambiguous retry
+and reconcile current state first. `--json` emits the readback envelope on stdout;
+confirmation and safety notices go to stderr.
+
+In `hsm watch`, the existing Tasks table starts expanded. Space on the task table or
+the Expand/collapse button toggles descendants without changing task state; selection
+and collapsed branches persist across refreshes. Owner/lifecycle columns remain,
+with local/inherited pause, remaining child budget, ready/required deliverables and
+unresolved-exception counts appended. Missing legacy governance is **unknown**, not
+zero or healthy; null remaining allowance is unlimited. Full budgets/contracts are
+available via **Scope** in the existing details area. **Pause**/**Resume** fetch a
+fresh version and open a reason/confirmation dialog; Cancel/Escape makes no write.
+Refresh is deferred while reviewing an intervention so its displayed version stays
+pinned. A concurrent server change is rejected, not overwritten. Contract violations
+remain visible in Events and their exact payloads via Enter; this recent snapshot is
+not a complete audit ledger (`hsm events` exposes explicit pagination).
+
+Governance pause blocks mediated authorization; **runtime control is unsupported and
+unacknowledged**. It does not stop processes. Resume only clears the local pause;
+ancestor pause, contracts, approvals and budgets still apply. Existing bounded approval
+history, tab navigation, stale-view preservation and filter-race guards are retained.
+See [checkpoint D UI evidence](docs/CHECKPOINT_D_UI.md) for the frontend-only verified
+boundary and pending backend integration. No installation or service restart is implied.
+
 ## Configuration
 
 See [.env.example](.env.example). Server credentials are a JSON array configured by

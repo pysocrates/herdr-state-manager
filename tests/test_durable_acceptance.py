@@ -131,7 +131,8 @@ def test_exception_metadata_persist_audit_scope_and_no_authority(env, make_task)
     approval = grant(call, exc)
     assert associate(call, exc, approval).json['error']['code'] == 'contract_amendment_required'
     assert refresh(call, 'approvals', approval)['consumed_at'] is None
-    assert refresh(call, 'tasks', task) == task
+    assert refresh(call, 'tasks', task) == {
+        **task, 'governance': {**task['governance'], 'unresolved_exceptions': 1}}
 
 
 @pytest.mark.parametrize('field', ['evidence_reference', 'proposed_action', 'scope_impact'])

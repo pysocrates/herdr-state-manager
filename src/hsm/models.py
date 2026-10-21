@@ -27,6 +27,10 @@ class Project(Base):
 
 class Task(Base):
     __tablename__ = 'tasks'
+    governance_paused: Mapped[bool] = mapped_column(default=False, server_default='0')
+    governance_changed_at: Mapped[str | None]
+    governance_changed_by: Mapped[str | None]
+    governance_reason: Mapped[str | None]
     __table_args__ = (UniqueConstraint('project_id', 'task_key'),)
     id: Mapped[str] = mapped_column(primary_key=True, default=uid)
     project_id: Mapped[str] = mapped_column(ForeignKey('projects.id'), index=True)

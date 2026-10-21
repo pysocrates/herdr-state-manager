@@ -324,7 +324,7 @@ def test_migration_0004_preserves_populated_rows(tmp_path):
         assert item is not None
         assert item.version == 1 and item.task_id is None
         assert item.evidence_reference is None and item.proposed_action is None and item.scope_impact is None
-        assert db.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0005'
+        assert db.execute(text('SELECT version_num FROM alembic_version')).scalar() == '0006'
         assert any(row[2] == 'tasks' for row in db.execute(text('PRAGMA foreign_key_list(incidents)')))
     engine.dispose()
 

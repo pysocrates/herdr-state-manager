@@ -105,6 +105,12 @@ def check_patch(s, item, data, transition):
         # checks the entire subtree, including contracts below an ungoverned root.
         nodes = s.task_tree(ident=item.id)['nodes']
         destination = s.db.get(Task, data['parent_id']) if data['parent_id'] else None
+        from .interventions import check_unpaused
+        check_unpaused(s, item)
+        if destination:
+            check_unpaused(s, destination)
+        if any(n['governance']['effective_paused'] for n in nodes):
+            deny(item, 'governance_paused')
         if governing or ancestry(s, destination) or any(current(s, n['id']) for n in nodes):
             deny(item, 'governed_reparent')
     if transition and data['state'] in {'failed', 'cancelled'}:
@@ -134,6 +140,8 @@ def write_contract(s, ident, data):
         raise Problem(409, 'stale_version', 'Task or contract version has changed')
     if item.state not in ACTIVE:
         raise Problem(409, 'terminal_task', 'Terminal tasks are immutable')
+    from .interventions import check_unpaused
+    check_unpaused(s, item)
     if not data['reason'].strip():
         raise Problem(422, 'validation', 'Amendment reason must not be blank')
     spec = ContractSpec.model_validate(data['contract']).model_dump()

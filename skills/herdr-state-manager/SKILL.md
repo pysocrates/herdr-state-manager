@@ -147,6 +147,33 @@ and exception recording remain available. Empty required sets do not stop legacy
 work. Scope expansion always needs an explicit operator amendment or separately
 approved task; neither exception resolution nor approval grants an implicit waiver.
 
+## Governance inspection and operator intervention (checkpoint D)
+
+When the CLI is installed, use `hsm scope TASK --project SLUG [--json]` to read the
+server's applicable contracts, remaining budgets, deliverable readiness, unresolved
+exceptions and runtime capability. `hsm checkpoint TASK --project SLUG --limit 50
+--offset 0 [--json]` reads recorded checkpoint evidence/actions only; never infer
+new authorization from an old checkpoint. UUIDs do not require `--project`.
+The scope REST route is `GET /tasks/UUID/scope`; use the CLI or authenticated REST
+client for it (the companion request helper's allowlist is separate).
+
+Only an explicitly authorized operator with `tasks:write` and project access may use
+`hsm pause TASK --project SLUG --reason TEXT --idempotency-key KEY` or the matching
+`hsm resume` command. Never acquire/switch credentials on an agent's behalf. These
+commands read and display the current version, require confirmation, POST the exact
+displayed expected_version/reason and independently GET the task afterward. Optional
+`--expected-version N` must match the preflight version and does not bypass confirmation.
+No automatic retry occurs on denial, stale version or ambiguous response; failed
+readback is unverified. Retain the exact payload/key if operator review authorizes a retry.
+
+Watch retains existing tabs: Tasks supports Space or Expand/collapse, Scope details,
+governance columns beside owner/lifecycle, and Pause/Resume reason-confirmation dialogs.
+Cancel/Escape never writes. Events/Enter shows persisted violation payloads; recent
+events are bounded, not full history. Missing legacy governance fields are unknown.
+Runtime control is unsupported/unacknowledged: pause never kills a process, resume
+never starts one, and clearing a local pause cannot bypass an ancestor's governance.
+These repository skill changes do not install a skill or deploy the server.
+
 ## Lifecycle and retries
 
 Use dedicated `/tasks/UUID/transition` requests; task PATCH cannot set state.

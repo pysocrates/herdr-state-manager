@@ -241,6 +241,8 @@ class Service:
                 .where(Task.project_id.in_(project_ids)).order_by(Delegation.created_at, Delegation.id)):
             delegations.setdefault(record.task_id, []).append(serialize(record))
         for task in tasks:
+            from .interventions import summary
+            task['governance'] = summary(self, self.db.get(Task, task['id']))
             owner = sessions.get(task['owner_session_id'])
             task['owner_profile'] = owner.profile if owner else None
             task['pane_ids'] = panes.get(task['id'], [])
